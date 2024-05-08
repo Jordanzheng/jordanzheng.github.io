@@ -1,0 +1,568 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+    <head>
+        <meta charset="utf-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <meta name="robots" content="noodp" />
+        <title>浅谈Java协程开源库---kilim - Saul&#39;s blog</title><meta name="Description" content="Saul&#39;s blog"><meta property="og:url" content="https://jordanzheng.github.io/simple-analysis-kilim/">
+  <meta property="og:site_name" content="Saul&#39;s blog">
+  <meta property="og:title" content="浅谈Java协程开源库---kilim">
+  <meta property="og:description" content="0、背景 ​ 近年来由于一批新兴的语言的流行，存在已久的协程也焕发出新的青春。类似Lua、Go、Phthon等语言都原生支持协程，而传统的C语言">
+  <meta property="og:locale" content="zh-CN">
+  <meta property="og:type" content="article">
+    <meta property="article:section" content="posts">
+    <meta property="article:published_time" content="2019-02-02T21:48:00+00:00">
+    <meta property="article:modified_time" content="2024-05-08T18:04:47+08:00">
+    <meta property="article:tag" content="协程">
+    <meta property="article:tag" content="Java">
+    <meta property="og:image" content="https://jordanzheng.github.io/logo.png">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:image" content="https://jordanzheng.github.io/logo.png"><meta name="twitter:title" content="浅谈Java协程开源库---kilim">
+<meta name="twitter:description" content="0、背景 ​ 近年来由于一批新兴的语言的流行，存在已久的协程也焕发出新的青春。类似Lua、Go、Phthon等语言都原生支持协程，而传统的C语言">
+<meta name="application-name" content="Saul&#39;s blog">
+<meta name="apple-mobile-web-app-title" content="Saul&#39;s blog"><meta name="theme-color" content="#ffffff"><meta name="msapplication-TileColor" content="#da532c"><link rel="shortcut icon" type="image/x-icon" href="/favicon.ico" />
+        <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png">
+        <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png"><link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png"><link rel="mask-icon" href="/safari-pinned-tab.svg" color="#5bbad5"><link rel="manifest" href="/site.webmanifest"><link rel="canonical" href="https://jordanzheng.github.io/simple-analysis-kilim/" /><link rel="prev" href="https://jordanzheng.github.io/open-multi-module-in-one-project-for-idea/" /><link rel="next" href="https://jordanzheng.github.io/question-about-kilim/" /><link rel="stylesheet" href="/css/style.min.css"><link rel="preload" href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.1.1/css/all.min.css" as="style" onload="this.onload=null;this.rel='stylesheet'">
+        <noscript><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.1.1/css/all.min.css"></noscript><link rel="preload" href="https://cdn.jsdelivr.net/npm/animate.css@4.1.1/animate.min.css" as="style" onload="this.onload=null;this.rel='stylesheet'">
+        <noscript><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/animate.css@4.1.1/animate.min.css"></noscript><script type="application/ld+json">
+    {
+        "@context": "http://schema.org",
+        "@type": "BlogPosting",
+        "headline": "浅谈Java协程开源库---kilim",
+        "inLanguage": "zh-CN",
+        "mainEntityOfPage": {
+            "@type": "WebPage",
+            "@id": "https:\/\/jordanzheng.github.io\/simple-analysis-kilim\/"
+        },"image": ["https:\/\/jordanzheng.github.io\/images\/Apple-Devices-Preview.png"],"genre": "posts","keywords": "协程, java","wordcount":  4976 ,
+        "url": "https:\/\/jordanzheng.github.io\/simple-analysis-kilim\/","datePublished": "2019-02-02T21:48:00+00:00","dateModified": "2024-05-08T18:04:47+08:00","license": "This work is licensed under a Creative Commons Attribution-NonCommercial 4.0 International License.","publisher": {
+            "@type": "Organization",
+            "name": "xxxx","logo": "https:\/\/jordanzheng.github.io\/images\/avatar.png"},"author": {
+                "@type": "Person",
+                "name": "saul"
+            },"description": ""
+    }
+    </script></head>
+    <body data-header-desktop="fixed" data-header-mobile="auto"><script type="text/javascript">(window.localStorage && localStorage.getItem('theme') ? localStorage.getItem('theme') === 'dark' : ('auto' === 'auto' ? window.matchMedia('(prefers-color-scheme: dark)').matches : 'auto' === 'dark')) && document.body.setAttribute('theme', 'dark');</script>
+
+        <div id="mask"></div><div class="wrapper"><header class="desktop" id="header-desktop">
+    <div class="header-wrapper">
+        <div class="header-title">
+            <a href="/" title="Saul&#39;s blog"><span class="header-title-pre"><i class='far fa-kiss-wink-heart fa-fw' aria-hidden='true'></i></span>Saul&#39;s blog</a>
+        </div>
+        <div class="menu">
+            <div class="menu-inner"><a class="menu-item" href="/posts/"> 所有文章 </a><a class="menu-item" href="/tags/"> 标签 </a><a class="menu-item" href="/categories/"> 分类 </a><a class="menu-item" href="/about/"> 关于 </a><a class="menu-item" href="https://github.com/Jordanzheng" title="GitHub" rel="noopener noreffer" target="_blank"><i class='fab fa-github fa-fw' aria-hidden='true'></i>  </a><span class="menu-item delimiter"></span><span class="menu-item search" id="search-desktop">
+                        <input type="text" placeholder="搜索文章标题或内容..." id="search-input-desktop">
+                        <a href="javascript:void(0);" class="search-button search-toggle" id="search-toggle-desktop" title="搜索">
+                            <i class="fas fa-search fa-fw" aria-hidden="true"></i>
+                        </a>
+                        <a href="javascript:void(0);" class="search-button search-clear" id="search-clear-desktop" title="清空">
+                            <i class="fas fa-times-circle fa-fw" aria-hidden="true"></i>
+                        </a>
+                        <span class="search-button search-loading" id="search-loading-desktop">
+                            <i class="fas fa-spinner fa-fw fa-spin" aria-hidden="true"></i>
+                        </span>
+                    </span><a href="javascript:void(0);" class="menu-item theme-switch" title="切换主题">
+                    <i class="fas fa-adjust fa-fw" aria-hidden="true"></i>
+                </a><a href="javascript:void(0);" class="menu-item language" title="选择语言">
+                    <i class="fa fa-globe" aria-hidden="true"></i>                      
+                    <select class="language-select" id="language-select-desktop" onchange="location = this.value;"><option value="/simple-analysis-kilim/" selected>简体中文</option></select>
+                </a></div>
+        </div>
+    </div>
+</header><header class="mobile" id="header-mobile">
+    <div class="header-container">
+        <div class="header-wrapper">
+            <div class="header-title">
+                <a href="/" title="Saul&#39;s blog"><span class="header-title-pre"><i class='far fa-kiss-wink-heart fa-fw' aria-hidden='true'></i></span>Saul&#39;s blog</a>
+            </div>
+            <div class="menu-toggle" id="menu-toggle-mobile">
+                <span></span><span></span><span></span>
+            </div>
+        </div>
+        <div class="menu" id="menu-mobile"><div class="search-wrapper">
+                    <div class="search mobile" id="search-mobile">
+                        <input type="text" placeholder="搜索文章标题或内容..." id="search-input-mobile">
+                        <a href="javascript:void(0);" class="search-button search-toggle" id="search-toggle-mobile" title="搜索">
+                            <i class="fas fa-search fa-fw" aria-hidden="true"></i>
+                        </a>
+                        <a href="javascript:void(0);" class="search-button search-clear" id="search-clear-mobile" title="清空">
+                            <i class="fas fa-times-circle fa-fw" aria-hidden="true"></i>
+                        </a>
+                        <span class="search-button search-loading" id="search-loading-mobile">
+                            <i class="fas fa-spinner fa-fw fa-spin" aria-hidden="true"></i>
+                        </span>
+                    </div>
+                    <a href="javascript:void(0);" class="search-cancel" id="search-cancel-mobile">
+                        取消
+                    </a>
+                </div><a class="menu-item" href="/posts/" title="">所有文章</a><a class="menu-item" href="/tags/" title="">标签</a><a class="menu-item" href="/categories/" title="">分类</a><a class="menu-item" href="/about/" title="">关于</a><a class="menu-item" href="https://github.com/Jordanzheng" title="GitHub" rel="noopener noreffer" target="_blank"><i class='fab fa-github fa-fw' aria-hidden='true'></i></a><a href="javascript:void(0);" class="menu-item theme-switch" title="切换主题">
+                <i class="fas fa-adjust fa-fw" aria-hidden="true"></i>
+            </a><a href="javascript:void(0);" class="menu-item" title="选择语言">
+                    <i class="fa fa-globe fa-fw" aria-hidden="true"></i>
+                    <select class="language-select" onchange="location = this.value;"><option value="/simple-analysis-kilim/" selected>简体中文</option></select>
+                </a></div>
+    </div>
+</header><div class="search-dropdown desktop">
+        <div id="search-dropdown-desktop"></div>
+    </div>
+    <div class="search-dropdown mobile">
+        <div id="search-dropdown-mobile"></div>
+    </div><main class="main">
+                <div class="container"><div class="toc" id="toc-auto">
+            <h2 class="toc-title">目录</h2>
+            <div class="toc-content" id="toc-content-auto"></div>
+        </div><article class="page single"><h1 class="single-title animate__animated animate__flipInX">浅谈Java协程开源库---kilim</h1><div class="post-meta">
+            <div class="post-meta-line"><span class="post-author"><a href="/" title="Author" rel="author" class="author"><i class="fas fa-user-circle fa-fw" aria-hidden="true"></i>saul</a></span>&nbsp;<span class="post-category">收录于 <a href="/categories/%E7%BB%8F%E9%AA%8C%E6%80%BB%E7%BB%93/"><i class="far fa-folder fa-fw" aria-hidden="true"></i>经验总结</a></span></div>
+            <div class="post-meta-line"><i class="far fa-calendar-alt fa-fw" aria-hidden="true"></i>&nbsp;<time datetime="2019-02-02">2019-02-02</time>&nbsp;<i class="fas fa-pencil-alt fa-fw" aria-hidden="true"></i>&nbsp;约 4976 字&nbsp;
+                <i class="far fa-clock fa-fw" aria-hidden="true"></i>&nbsp;预计阅读 10 分钟&nbsp;<span id="/simple-analysis-kilim/" class="leancloud_visitors" data-flag-title="浅谈Java协程开源库---kilim">
+                        <i class="far fa-eye fa-fw" aria-hidden="true"></i>&nbsp;<span class=leancloud-visitors-count></span>&nbsp;次阅读
+                    </span>&nbsp;</div>
+        </div><div class="details toc" id="toc-static"  data-kept="">
+                <div class="details-summary toc-title">
+                    <span>目录</span>
+                    <span><i class="details-icon fas fa-angle-right" aria-hidden="true"></i></span>
+                </div>
+                <div class="details-content toc-content" id="toc-content-static"><nav id="TableOfContents">
+  <ul>
+    <li><a href="#0背景">0、背景</a></li>
+    <li><a href="#1kilim是什么">1、kilim是什么</a></li>
+    <li><a href="#2kilim协程框架图">2、Kilim协程框架图</a>
+      <ul>
+        <li><a href="#1task">1、Task</a></li>
+        <li><a href="#2-scheduler">2、 Scheduler</a></li>
+        <li><a href="#3workerthread">3、WorkerThread</a></li>
+        <li><a href="#4ringqueue">4、RingQueue</a></li>
+        <li><a href="#5-mailbox">5、 Mailbox</a></li>
+        <li><a href="#6fiber">6、Fiber</a></li>
+      </ul>
+    </li>
+    <li><a href="#3kilim的调度流程">3、kilim的调度流程</a></li>
+    <li><a href="#4kilim要解决的问题">4、Kilim要解决的问题</a>
+      <ul>
+        <li><a href="#kilim的解决方案">Kilim的解决方案</a></li>
+      </ul>
+    </li>
+    <li><a href="#5kilim的工作原理">5、Kilim的工作原理</a>
+      <ul>
+        <li><a href="#如何实现task的暂停"><strong>如何实现Task的暂停？</strong></a></li>
+        <li><a href="#如何实现task的恢复呢">如何实现Task的恢复呢？</a></li>
+      </ul>
+    </li>
+  </ul>
+</nav></div>
+            </div><div class="content" id="content"><h2 id="0背景">0、背景</h2>
+<p>​    近年来由于一批新兴的语言的流行，存在已久的协程也焕发出新的青春。类似Lua、Go、Phthon等语言都原生支持协程，而传统的C语言中，C标准库里 的函数setjmp和longjmp可以用来实现协程，另外一种广为使用的C语言协程非标准库则是 ucontext组件。由于协程在Java语言层面原生不支持，因此在Java中如果要使用协程，则需要使用第三方的协程框架。Kilim正是这样一个比 较著名的Java 协程开源库。</p>
+<!-- more -->
+<h2 id="1kilim是什么">1、kilim是什么</h2>
+<p>Kilim是一个Java的actor框架，由剑桥的博士sriram srinivasan开发的一个用于在Java中使用Coroutine的框架。它由一个字节码后处理器(“ weaver”)、一个带缓冲邮箱(多生产者、单消费者队列)的运行时库、一个用户级调度器组成。</p>
+<h2 id="2kilim协程框架图">2、Kilim协程框架图</h2>
+<p>Kilim协程框架的整体结构图如下，包括的核心组件：Scheduler协程调度器，WorkerThread工作者线程，Task任务，Mailbox消息邮箱队列，Fiber协程上下文。</p>
+<p><img
+        class="lazyload"
+        src="/svg/loading.min.svg"
+        data-src="/../assets/blogImg/kilim-1.jpg"
+        data-srcset="/../assets/blogImg/kilim-1.jpg, /../assets/blogImg/kilim-1.jpg 1.5x, /../assets/blogImg/kilim-1.jpg 2x"
+        data-sizes="auto"
+        alt="/../assets/blogImg/kilim-1.jpg"
+        title="img" width="458" height="355" /></p>
+<h3 id="1task">1、Task</h3>
+<p>Task对象是Kilim中核心的结构，所有业务的逻辑代码都是在Task中执行。Task可以理解为Actor模型中的Actor，Task的执行过程 中可以被暂停，也可以被再次唤醒。使用方式上与Thread 基本类似，启动需要调用Task的start 方法。</p>
+<div class="highlight"><div class="chroma">
+<table class="lntable"><tr><td class="lntd">
+<pre tabindex="0" class="chroma"><code><span class="lnt">1
+</span><span class="lnt">2
+</span><span class="lnt">3
+</span><span class="lnt">4
+</span><span class="lnt">5
+</span><span class="lnt">6
+</span><span class="lnt">7
+</span></code></pre></td>
+<td class="lntd">
+<pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="n">Task</span><span class="w"> </span><span class="nf">start</span><span class="p">()</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">scheduler</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="kc">null</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="n">setScheduler</span><span class="p">(</span><span class="n">Scheduler</span><span class="p">.</span><span class="na">getDefaultScheduler</span><span class="p">());</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">resume</span><span class="p">();</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">return</span><span class="w"> </span><span class="k">this</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
+</span></span></span></code></pre></td></tr></table>
+</div>
+</div><h3 id="2-scheduler">2、 Scheduler</h3>
+<p>Scheduler是Kilim框架中核心的任务调度器，负责管理任务的工作者线程WorkerThread，以及一个基本的FIFO队列，维护着 Task任务列表，Scheduler负责分派Task给指定的工作者线程WorkerThread执行，其实现上类似于ExecutorService 线程池管理Runnable和Callable任务的执行。工作者线程WorkerThread的默认初始化个数为CPU核数，且所有空闲的线程会添加到 RingQueue队列中。</p>
+<div class="highlight"><div class="chroma">
+<table class="lntable"><tr><td class="lntd">
+<pre tabindex="0" class="chroma"><code><span class="lnt">1
+</span><span class="lnt">2
+</span><span class="lnt">3
+</span><span class="lnt">4
+</span><span class="lnt">5
+</span><span class="lnt">6
+</span><span class="lnt">7
+</span></code></pre></td>
+<td class="lntd">
+<pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="n">LinkedList</span><span class="o">&lt;</span><span class="n">WorkerThread</span><span class="o">&gt;</span><span class="w"> </span><span class="n">allThreads</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">LinkedList</span><span class="o">&lt;</span><span class="n">WorkerThread</span><span class="o">&gt;</span><span class="p">();</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="n">RingQueue</span><span class="o">&lt;</span><span class="n">WorkerThread</span><span class="o">&gt;</span><span class="w"> </span><span class="n">waitingThreads</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">RingQueue</span><span class="o">&lt;</span><span class="n">WorkerThread</span><span class="o">&gt;</span><span class="p">(</span><span class="n">10</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">protected</span><span class="w"> </span><span class="kd">volatile</span><span class="w"> </span><span class="kt">boolean</span><span class="w"> </span><span class="n">shutdown</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="kc">false</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="n">RingQueue</span><span class="o">&lt;</span><span class="n">Task</span><span class="o">&gt;</span><span class="w"> </span><span class="n">runnableTasks</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">RingQueue</span><span class="o">&lt;</span><span class="n">Task</span><span class="o">&gt;</span><span class="p">(</span><span class="n">100</span><span class="p">);</span><span class="w">
+</span></span></span></code></pre></td></tr></table>
+</div>
+</div><h3 id="3workerthread">3、WorkerThread</h3>
+<p>WorkerThread是执行任务Task的具体线程，内部维护一个默认大小为10的环形队列RingQueue，与ThreadPoolExecutor线程池中定义的Worker类似，循环阻塞式的从任务队列中获取下一个任务执行。</p>
+<div class="highlight"><div class="chroma">
+<table class="lntable"><tr><td class="lntd">
+<pre tabindex="0" class="chroma"><code><span class="lnt"> 1
+</span><span class="lnt"> 2
+</span><span class="lnt"> 3
+</span><span class="lnt"> 4
+</span><span class="lnt"> 5
+</span><span class="lnt"> 6
+</span><span class="lnt"> 7
+</span><span class="lnt"> 8
+</span><span class="lnt"> 9
+</span><span class="lnt">10
+</span><span class="lnt">11
+</span><span class="lnt">12
+</span><span class="lnt">13
+</span><span class="lnt">14
+</span><span class="lnt">15
+</span><span class="lnt">16
+</span><span class="lnt">17
+</span><span class="lnt">18
+</span><span class="lnt">19
+</span><span class="lnt">20
+</span><span class="lnt">21
+</span><span class="lnt">22
+</span><span class="lnt">23
+</span><span class="lnt">24
+</span><span class="lnt">25
+</span><span class="lnt">26
+</span><span class="lnt">27
+</span><span class="lnt">28
+</span><span class="lnt">29
+</span><span class="lnt">30
+</span><span class="lnt">31
+</span><span class="lnt">32
+</span><span class="lnt">33
+</span><span class="lnt">34
+</span><span class="lnt">35
+</span></code></pre></td>
+<td class="lntd">
+<pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="n">RingQueue</span><span class="o">&lt;</span><span class="n">Task</span><span class="o">&gt;</span><span class="w">  </span><span class="n">tasks</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">RingQueue</span><span class="o">&lt;</span><span class="n">Task</span><span class="o">&gt;</span><span class="p">(</span><span class="n">10</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="kt">void</span><span class="w"> </span><span class="nf">run</span><span class="p">()</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">try</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="k">while</span><span class="w"> </span><span class="p">(</span><span class="kc">true</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="n">Task</span><span class="w"> </span><span class="n">t</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">getNextTask</span><span class="p">(</span><span class="k">this</span><span class="p">);</span><span class="w"> </span><span class="c1">// blocks until task available</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="n">runningTask</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">t</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="n">t</span><span class="p">.</span><span class="na">_runExecute</span><span class="p">(</span><span class="k">this</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="n">runningTask</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="kc">null</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="p">}</span><span class="w"> </span><span class="k">catch</span><span class="w"> </span><span class="p">(</span><span class="n">ShutdownException</span><span class="w"> </span><span class="n">se</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="c1">// nothing to do.</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="p">}</span><span class="w"> </span><span class="k">catch</span><span class="w"> </span><span class="p">(</span><span class="n">OutOfMemoryError</span><span class="w"> </span><span class="n">ex</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="n">System</span><span class="p">.</span><span class="na">err</span><span class="p">.</span><span class="na">println</span><span class="p">(</span><span class="s">&#34;Out of memory&#34;</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="p">}</span><span class="w"> </span><span class="k">catch</span><span class="w"> </span><span class="p">(</span><span class="n">Throwable</span><span class="w"> </span><span class="n">ex</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="n">ex</span><span class="p">.</span><span class="na">printStackTrace</span><span class="p">();</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">runningTask</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="kc">null</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
+</span></span></span></code></pre></td></tr></table>
+</div>
+</div><h3 id="4ringqueue">4、RingQueue</h3>
+<p>RingQueue本质上即一个环形队列，作为Queue用于不同的线程之间传递message的设计，和ZeroMQ利用ringbuffer来作为pipe在不同线程之间传递message的用法都是很类似的</p>
+<div class="highlight"><div class="chroma">
+<table class="lntable"><tr><td class="lntd">
+<pre tabindex="0" class="chroma"><code><span class="lnt">1
+</span><span class="lnt">2
+</span><span class="lnt">3
+</span><span class="lnt">4
+</span><span class="lnt">5
+</span><span class="lnt">6
+</span></code></pre></td>
+<td class="lntd">
+<pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kd">class</span> <span class="nc">RingQueue</span><span class="o">&lt;</span><span class="n">T</span><span class="o">&gt;</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">protected</span><span class="w"> </span><span class="n">T</span><span class="o">[]</span><span class="w"> </span><span class="n">elements</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">protected</span><span class="w"> </span><span class="kt">int</span><span class="w"> </span><span class="n">iprod</span><span class="p">;</span><span class="c1">// producer index</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">protected</span><span class="w"> </span><span class="kt">int</span><span class="w"> </span><span class="n">icons</span><span class="p">;</span><span class="c1">// consumer index</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">protected</span><span class="w"> </span><span class="kt">int</span><span class="w"> </span><span class="n">maxSize</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">protected</span><span class="w"> </span><span class="kt">int</span><span class="w"> </span><span class="n">size</span><span class="p">;</span><span class="w">
+</span></span></span></code></pre></td></tr></table>
+</div>
+</div><h3 id="5-mailbox">5、 Mailbox</h3>
+<p>Kilim 中通过Mailbox 对象来发送消息，Mailbox 的基本原则为可以有多个消息发送者，但只能有一个消息接收者，发送的方式有同步发送、异步发送和阻塞线程方式的同步发送三种：</p>
+<ul>
+<li>同步发送是指保证一定能将消息放入发送队列中，如当前发送队列已满，则等待到可用为止，阻塞的为当前Task；</li>
+<li>异步发送则是尝试将消息放入发送队列一次，如果发送失败，则返回false，成功则返回true，不会阻塞Task；</li>
+<li>阻塞线程方式的同步发送是指阻塞当前线程，并保证将消息发送给接收者。</li>
+</ul>
+<div class="highlight"><div class="chroma">
+<table class="lntable"><tr><td class="lntd">
+<pre tabindex="0" class="chroma"><code><span class="lnt"> 1
+</span><span class="lnt"> 2
+</span><span class="lnt"> 3
+</span><span class="lnt"> 4
+</span><span class="lnt"> 5
+</span><span class="lnt"> 6
+</span><span class="lnt"> 7
+</span><span class="lnt"> 8
+</span><span class="lnt"> 9
+</span><span class="lnt">10
+</span><span class="lnt">11
+</span><span class="lnt">12
+</span><span class="lnt">13
+</span><span class="lnt">14
+</span></code></pre></td>
+<td class="lntd">
+<pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kd">class</span> <span class="nc">Mailbox</span><span class="o">&lt;</span><span class="n">T</span><span class="o">&gt;</span><span class="w"> </span><span class="kd">implements</span><span class="w"> </span><span class="n">PauseReason</span><span class="p">,</span><span class="w"> </span><span class="n">EventPublisher</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">T</span><span class="o">[]</span><span class="w"> </span><span class="n">msgs</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">private</span><span class="w"> </span><span class="kt">int</span><span class="w"> </span><span class="n">iprod</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">0</span><span class="p">;</span><span class="w"> </span><span class="c1">// producer index</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">private</span><span class="w"> </span><span class="kt">int</span><span class="w"> </span><span class="n">icons</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">0</span><span class="p">;</span><span class="w"> </span><span class="c1">// consumer index;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">private</span><span class="w"> </span><span class="kt">int</span><span class="w"> </span><span class="n">numMsgs</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">0</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">private</span><span class="w"> </span><span class="kt">int</span><span class="w"> </span><span class="n">maxMsgs</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">300</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">EventSubscriber</span><span class="w"> </span><span class="n">sink</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w"></span><span class="p">}</span><span class="w">
+</span></span></span></code></pre></td></tr></table>
+</div>
+</div><p>与发送消息类似，Kilim 中也通过Mailbox 来接收消息，接收方式有同步接收、异步接收以及阻塞线程方式的同步接收三种：</p>
+<ul>
+<li>同步接收是指阻塞当前Task，直到接收到消息才返回；</li>
+<li>异步接收是指立刻返回Mailbox 中的消息，有就返回，没有则返回null；</li>
+<li>阻塞线程方式的同步接收是指阻塞当前线程，直到接收到消息才返回。</li>
+</ul>
+<h3 id="6fiber">6、Fiber</h3>
+<p>Fiber的概念可能稍微难以理解，Kilim中的Fiber对象主要用来维护Task执行过程中的堆栈，Fiber中的主要成员变量有 curState，pc，stateStack，iStack等，其中curState为当前协程的执行状态，stateStack为协程的堆 栈，iStack表示当前的栈帧位置。</p>
+<div class="highlight"><div class="chroma">
+<table class="lntable"><tr><td class="lntd">
+<pre tabindex="0" class="chroma"><code><span class="lnt"> 1
+</span><span class="lnt"> 2
+</span><span class="lnt"> 3
+</span><span class="lnt"> 4
+</span><span class="lnt"> 5
+</span><span class="lnt"> 6
+</span><span class="lnt"> 7
+</span><span class="lnt"> 8
+</span><span class="lnt"> 9
+</span><span class="lnt">10
+</span><span class="lnt">11
+</span><span class="lnt">12
+</span><span class="lnt">13
+</span><span class="lnt">14
+</span><span class="lnt">15
+</span><span class="lnt">16
+</span><span class="lnt">17
+</span><span class="lnt">18
+</span><span class="lnt">19
+</span><span class="lnt">20
+</span><span class="lnt">21
+</span></code></pre></td>
+<td class="lntd">
+<pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kd">final</span><span class="w"> </span><span class="kd">class</span> <span class="nc">Fiber</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="n">State</span><span class="w">               </span><span class="n">curState</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="kt">int</span><span class="w">                 </span><span class="n">pc</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="cm">/*
+</span></span></span><span class="line"><span class="cl"><span class="cm">     * One State object for each activation frame in the call hierarchy.
+</span></span></span><span class="line"><span class="cl"><span class="cm">     */</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">private</span><span class="w"> </span><span class="n">State</span><span class="o">[]</span><span class="w">            </span><span class="n">stateStack</span><span class="w">              </span><span class="o">=</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">State</span><span class="o">[</span><span class="n">10</span><span class="o">]</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="cm">/*
+</span></span></span><span class="line"><span class="cl"><span class="cm">     * Index into stateStack and equal to depth of call hierarchy - 1
+</span></span></span><span class="line"><span class="cl"><span class="cm">     */</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">private</span><span class="w"> </span><span class="kt">int</span><span class="w">                </span><span class="n">iStack</span><span class="w">                  </span><span class="o">=</span><span class="w"> </span><span class="o">-</span><span class="n">1</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="cm">/*
+</span></span></span><span class="line"><span class="cl"><span class="cm">     * The task to which this Fiber belongs
+</span></span></span><span class="line"><span class="cl"><span class="cm">     */</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="n">Task</span><span class="w">                      </span><span class="n">task</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w"></span><span class="p">}</span><span class="w">
+</span></span></span></code></pre></td></tr></table>
+</div>
+</div><h2 id="3kilim的调度流程">3、kilim的调度流程</h2>
+<p>调度流程中有三个主要的类</p>
+<ul>
+<li>Scheduler-调度器</li>
+<li>WorkThread-调度运行承载线程</li>
+<li>Task-类似于Thread，协程的体现者</li>
+</ul>
+<p><img
+        class="lazyload"
+        src="/svg/loading.min.svg"
+        data-src="/../assets/blogImg/kilim-2.png"
+        data-srcset="/../assets/blogImg/kilim-2.png, /../assets/blogImg/kilim-2.png 1.5x, /../assets/blogImg/kilim-2.png 2x"
+        data-sizes="auto"
+        alt="/../assets/blogImg/kilim-2.png"
+        title="img" width="667" height="385" /></p>
+<h2 id="4kilim要解决的问题">4、Kilim要解决的问题</h2>
+<p>Kilim协程框架中最核心需要解决的问题</p>
+<ol>
+<li><strong>如何暂停处理当前任务，转而处理其他任务？</strong></li>
+<li><strong>如何恢复任务继续执行？</strong></li>
+</ol>
+<p>也即如何实现协程本身的 yield / resume的语义特性。</p>
+<h3 id="kilim的解决方案">Kilim的解决方案</h3>
+<p>Kilim框架在实现yield / resume的语义特性时，主要做以下几个事情：</p>
+<ul>
+<li>利用字节码技术(基于ASM字节码框架)，将普通代码转化为支持协程的代码；</li>
+<li>调用Pauseable方法的时候，如果方法暂停了就保存当前方法的堆栈，暂停执行当前Task，将控制权交给Scheduler调度器；</li>
+<li>Scheduler调度器负责协调其他就绪的Task；</li>
+<li>之前暂停的Task恢复的时候，自动恢复对应方法的堆栈，恢复到上次执行的位置继续执行；</li>
+</ul>
+<p>​    其中，第一点是在编译期实现，后面三点是在运行期执行。再稍微详细一点就是：Kilim通过编译期字节码编织，对每一个可暂停（Pauseable）的方 法进行字节码处理，在方法执行前和执行后加上相关的执行上下文的处理，暂停时会保存执行堆栈，然后通过特定的字节码跳转指令goto跳转到另外一个 Task的执行方法中，恢复时将复原整个线程堆栈，回到上次暂停时的位置继续往下执行。</p>
+<h2 id="5kilim的工作原理">5、Kilim的工作原理</h2>
+<p>Kilim最神奇的地方在于字节码增加，那么它是怎样将普通的Java代码改写层支持协程的代码呢？首先上Kilim官方文档中的一张图：</p>
+<p><img
+        class="lazyload"
+        src="/svg/loading.min.svg"
+        data-src="/../assets/blogImg/kilim-3.png"
+        data-srcset="/../assets/blogImg/kilim-3.png, /../assets/blogImg/kilim-3.png 1.5x, /../assets/blogImg/kilim-3.png 2x"
+        data-sizes="auto"
+        alt="/../assets/blogImg/kilim-3.png"
+        title="img" width="799" height="626" /></p>
+<p>这张图也即Kilim实现协程语义的精髓所在，和C语言中实现协程的方式有很大不同，接下来仔细分析。</p>
+<p>​    左边是普通的Java函数代码，与我们常见的函数唯一有所不同的是函数a和b均显示声明抛出Pausable异常，而实际上这个异常在运行期间不会抛出， 它的实际作用类似于注解，使得Kilim能够识别哪些代码需要Weaver工具进行代码增强。函数抛出Pausable异常即表明该函数是可暂停的，</p>
+<p>右边的代码即通过字节码增强后的代码，与左边原始的代码相比，首先函数声明中额外增加了一个Fiber参数，Fiber可以理解为当前纤程、协程的上下 文。Fiber中存储着协程暂停和恢复时需要用到的函数堆栈、程序计数器以及当前函数的执行状态。字节码增强后的代码以调用Pausable方法a为分 界，将整个函数分成几个代码块，也即官网文档中提及的prelude、pre_call、post_call三部分。</p>
+<ul>
+<li>在prelude块中，也即刚进入函数a时将会执行的代码块，将根据Fiber中的pc程序计数器跳转到对应的代码块处开始执行。</li>
+<li>在pre_call块中，也即在调用函数b之前，将调用Fiber的down方法记录当前执行状态和pc程序计数器，标识着函数将进入下一个Pausable方法。</li>
+<li>在post_call块中，也即在调用函数b之后，将调用Fiber的up方法计算函数b调用完成后返回的状态，标识着从一个被调的Pausable方法返回，它既可能是正常的函数b执行完成返回，也可能是函数b执行暂停返回，接着通过这个状态控制后续的执行流程。</li>
+</ul>
+<p>这四种状态分别为：</p>
+<ol>
+<li>NOT_PAUSING__NO_STATE，即被调函数执行完成正常返回，这种情况与即普通的函数执行类似。</li>
+<li>NOT_PAUSING__HAS_STATE，即被调函数执行完成，但还存在上次暂存的栈帧，这种情况一般是函数从上次暂停处恢复执行，且顺利执行完成返回，此时需要恢复函数的栈帧，然后goto到RESUME代码块继续执行。</li>
+<li>PAUSING__NO_STATE，即被调函数执行过程中暂停，且还未保存函数栈帧，需要主调函数执行暂存操作，这种情况一般即第一次协程执行到需要暂停处，此时需要采用字节码暂存函数的栈帧和状态，然后直接return。</li>
+<li>PAUSING__HAS_STATE， 即被调函数执行过程中暂停，且已经保存函数栈帧，这种情况是该Pausable从上次暂停处恢复执行，但是依然没有预期的结果，需要再次暂停，此时因为之 前暂停时函数栈帧和状态都已经保存过，不需要再做什么，因此直接return即可。</li>
+</ol>
+<p>​    OK，到目前为止基本原理大概清晰，不过要把协程与线程的执行过程整个串联起来，形成一个整体还稍显迷惑，接下来详细说明。</p>
+<p>上面已经提到协程执行过程中核心的两个点：一点是调用Pauseable方法的时候，如果暂停了就保存当前方法栈的State，暂停执行当前Task，将 控制权交给Scheduler调度器，另外一点是暂停的Task恢复的时候，自动恢复State，恢复到上次执行的位置继续执行。这两点的具体过程如下：</p>
+<p>前面的Kilim结构图中已经讲到Kilim中有几个核心元素，包括Task、Scheduler、WorkerThread以及Mailbox。其中 WorkerThread即实际执行Task任务的工作者线程，Task即具体的可暂停的业务逻辑，Task与Task之间通过参数化定制的 Mailbox来通信。Kilim将线程run方法体中所有嵌套层级调用的所有Pausable方法组织成一个具有父子关系的调用链，形如 run-&gt;A-&gt;B-&gt;C，通过Task私有的Fiber来记录执行到哪一个层级。通常Kilim中使用Mailbox提供的get、 getb、getnb三个不同版本来接收消息，其中最常用的get会阻塞当前Task而不阻塞当前线程。</p>
+<h3 id="如何实现task的暂停"><strong>如何实现Task的暂停？</strong></h3>
+<p>例如一个运行状态Task的调用链run-&gt;A-&gt;B-&gt;C，其中A、B、C均为Pauseable方法，在函数C中调用了 Mailbox的get方法且设置了超时时长，当整个链嵌套执行到C的get方法这一行时，因为get本身也是一个Pausable方法，如果没有接收到 消息，将会把Task作为该Mailbox的观察者，并调用Task.pause(this)方法暂停自身，然后该get方法即直接返回，get调用返回 后，C根据Fiber的up计算发现是暂停返回，则也暂停本函数，暂存栈帧和状态，直接返回，如此逆向直到run方法，从而实现Task的暂停。</p>
+<div class="highlight"><div class="chroma">
+<table class="lntable"><tr><td class="lntd">
+<pre tabindex="0" class="chroma"><code><span class="lnt"> 1
+</span><span class="lnt"> 2
+</span><span class="lnt"> 3
+</span><span class="lnt"> 4
+</span><span class="lnt"> 5
+</span><span class="lnt"> 6
+</span><span class="lnt"> 7
+</span><span class="lnt"> 8
+</span><span class="lnt"> 9
+</span><span class="lnt">10
+</span><span class="lnt">11
+</span><span class="lnt">12
+</span><span class="lnt">13
+</span><span class="lnt">14
+</span><span class="lnt">15
+</span><span class="lnt">16
+</span><span class="lnt">17
+</span><span class="lnt">18
+</span><span class="lnt">19
+</span></code></pre></td>
+<td class="lntd">
+<pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="w"> </span><span class="kd">public</span><span class="w"> </span><span class="n">T</span><span class="w"> </span><span class="nf">get</span><span class="p">()</span><span class="w"> </span><span class="kd">throws</span><span class="w"> </span><span class="n">Pausable</span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">Task</span><span class="w"> </span><span class="n">t</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">Task</span><span class="p">.</span><span class="na">getCurrentTask</span><span class="p">();</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">T</span><span class="w"> </span><span class="n">msg</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">get</span><span class="p">(</span><span class="n">t</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">while</span><span class="w"> </span><span class="p">(</span><span class="n">msg</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="kc">null</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="n">Task</span><span class="p">.</span><span class="na">pause</span><span class="p">(</span><span class="k">this</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="n">removeMsgAvailableListener</span><span class="p">(</span><span class="n">t</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="n">msg</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">get</span><span class="p">(</span><span class="n">t</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">return</span><span class="w"> </span><span class="n">msg</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
+</span></span></span></code></pre></td></tr></table>
+</div>
+</div><h3 id="如何实现task的恢复呢">如何实现Task的恢复呢？</h3>
+<p>Task暂停的过程中有一步很关键，将该Task作为该Mailbox的观察者，在当有其他线程把消息通过调用Mailbox的put方法添加到Mailbox中时，或者超时定时器触发时，将会回调该Mailbox的观察者，告诉观察者有新的消息到来。这样Task的onEvent被回调，onEvent直接调用resume方法，而resume方法实际最重要的一步即调用Scheduler的schedule方法，将该Task加入到Scheduler的可运行任务队列中，并随机选择一个等待运行的工作者线程，并notify该线程，该线程被唤醒后将执行该Task，重复之前的函数调用链run-&gt;A-&gt;B-&gt;C执行，由于A、B、C三个函数中均已经保存了之前暂停的函数栈帧和状态，因此之前已经执行过的代码块将不会重复执行，会根据Fiber中状态选择性的执行对应的代码块。因为Mailbox中已经有消息，因此再重复执行到get方法时能够直接获取到消息，正常的往下继续执行。这样相当于又走了一次调用链，但是并非重复执行已经执行过的代码，而是恢复执行之前未执行的代码，从而实现Task的恢复</p>
+<div class="highlight"><div class="chroma">
+<table class="lntable"><tr><td class="lntd">
+<pre tabindex="0" class="chroma"><code><span class="lnt">1
+</span><span class="lnt">2
+</span><span class="lnt">3
+</span></code></pre></td>
+<td class="lntd">
+<pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kt">void</span><span class="w"> </span><span class="nf">onEvent</span><span class="p">(</span><span class="n">EventPublisher</span><span class="w"> </span><span class="n">ep</span><span class="p">,</span><span class="w"> </span><span class="n">Event</span><span class="w"> </span><span class="n">e</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">resume</span><span class="p">();</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
+</span></span></span></code></pre></td></tr></table>
+</div>
+</div></div><div class="post-footer" id="post-footer">
+    <div class="post-info">
+        <div class="post-info-line">
+            <div class="post-info-mod">
+                <span>更新于 2024-05-08&nbsp;<a class="git-hash" href="https://github.com/dillonzq/LoveIt/commit/8dccd1164f6da14d0e438c9150b8bf409cb46d4f" target="_blank" title="commit by Jordanzheng(saulhadis@gmail.com) 8dccd1164f6da14d0e438c9150b8bf409cb46d4f: master: 迁移旧blog的图片">
+                                    <i class="fas fa-hashtag fa-fw" aria-hidden="true"></i>8dccd11</a></span>
+            </div></div>
+        <div class="post-info-line">
+            <div class="post-info-md"><span>
+                            <a class="link-to-markdown" href="/simple-analysis-kilim/index.md" target="_blank">阅读原始文档</a>
+                        </span></div>
+            <div class="post-info-share">
+                <span><a href="javascript:void(0);" title="分享到 Twitter" data-sharer="twitter" data-url="https://jordanzheng.github.io/simple-analysis-kilim/" data-title="浅谈Java协程开源库---kilim" data-hashtags="协程,java"><i class="fab fa-twitter fa-fw" aria-hidden="true"></i></a><a href="javascript:void(0);" title="分享到 Hacker News" data-sharer="hackernews" data-url="https://jordanzheng.github.io/simple-analysis-kilim/" data-title="浅谈Java协程开源库---kilim"><i class="fab fa-hacker-news fa-fw" aria-hidden="true"></i></a><a href="javascript:void(0);" title="分享到 微博" data-sharer="weibo" data-url="https://jordanzheng.github.io/simple-analysis-kilim/" data-title="浅谈Java协程开源库---kilim" data-ralateuid="xxxx"><i class="fab fa-weibo fa-fw" aria-hidden="true"></i></a></span>
+            </div>
+        </div>
+    </div>
+
+    <div class="post-info-more">
+        <section class="post-tags"><i class="fas fa-tags fa-fw" aria-hidden="true"></i>&nbsp;<a href="/tags/%E5%8D%8F%E7%A8%8B/">协程</a>,&nbsp;<a href="/tags/java/">Java</a></section>
+        <section>
+            <span><a href="javascript:void(0);" onclick="window.history.back();">返回</a></span>&nbsp;|&nbsp;<span><a href="/">主页</a></span>
+        </section>
+    </div>
+
+    <div class="post-nav"><a href="/open-multi-module-in-one-project-for-idea/" class="prev" rel="prev" title="idea中一个窗口引入多个maven project工程"><i class="fas fa-angle-left fa-fw" aria-hidden="true"></i>idea中一个窗口引入多个maven project工程</a>
+            <a href="/question-about-kilim/" class="next" rel="next" title="kilim疑问解答">kilim疑问解答<i class="fas fa-angle-right fa-fw" aria-hidden="true"></i></a></div>
+</div>
+<div id="comments"><div id="valine" class="comment"></div><noscript>
+                Please enable JavaScript to view the comments powered by <a href="https://valine.js.org/">Valine</a>.
+            </noscript></div></article></div>
+            </main><footer class="footer">
+        <div class="footer-container"><div class="footer-line">由 <a href="https://gohugo.io/" target="_blank" rel="noopener noreffer" title="Hugo 0.125.6">Hugo</a> 强力驱动 | 主题 - <a href="https://github.com/dillonzq/LoveIt" target="_blank" rel="noopener noreffer" title="LoveIt 0.2.11"><i class="far fa-kiss-wink-heart fa-fw" aria-hidden="true"></i> LoveIt</a>
+                </div><div class="footer-line" itemscope itemtype="http://schema.org/CreativeWork"><i class="far fa-copyright fa-fw" aria-hidden="true"></i><span itemprop="copyrightYear">2016 - 2024</span><span class="author" itemprop="copyrightHolder">&nbsp;<a href="/" target="_blank">saul</a></span>&nbsp;|&nbsp;<span class="license"><a rel="license external nofollow noopener noreffer" href="https://creativecommons.org/licenses/by-nc/4.0/" target="_blank">CC BY-NC 4.0</a></span></div>
+        </div>
+    </footer></div>
+
+        <div id="fixed-buttons"><a href="#" id="back-to-top" class="fixed-button" title="回到顶部">
+                <i class="fas fa-arrow-up fa-fw" aria-hidden="true"></i>
+            </a><a href="#" id="view-comments" class="fixed-button" title="查看评论">
+                <i class="fas fa-comment fa-fw" aria-hidden="true"></i>
+            </a>
+        </div><link rel="stylesheet" href="/lib/valine/valine.min.css"><script type="text/javascript" src="https://cdn.jsdelivr.net/npm/valine@1.5.0/dist/Valine.min.js"></script><script type="text/javascript" src="https://cdn.jsdelivr.net/npm/autocomplete.js@0.38.1/dist/autocomplete.min.js"></script><script type="text/javascript" src="https://cdn.jsdelivr.net/npm/algoliasearch@4.13.1/dist/algoliasearch-lite.umd.min.js"></script><script type="text/javascript" src="https://cdn.jsdelivr.net/npm/lazysizes@5.3.2/lazysizes.min.js"></script><script type="text/javascript" src="https://cdn.jsdelivr.net/npm/clipboard@2.0.11/dist/clipboard.min.js"></script><script type="text/javascript" src="https://cdn.jsdelivr.net/npm/sharer.js@0.5.1/sharer.min.js"></script><script type="text/javascript">window.config={"code":{"copyTitle":"复制到剪贴板","maxShownLines":50},"comment":{"valine":{"appId":"QGzwQXOqs5JOhN4RGPOkR2mR-MdYXbMMI","appKey":"WBmoGyJtbqUswvfLh6L8iEBr","avatar":"mp","el":"#valine","emojiCDN":"https://cdn.jsdelivr.net/npm/emoji-datasource-google@14.0.0/img/google/64/","emojiMaps":{"100":"1f4af.png","alien":"1f47d.png","anger":"1f4a2.png","angry":"1f620.png","anguished":"1f627.png","astonished":"1f632.png","black_heart":"1f5a4.png","blue_heart":"1f499.png","blush":"1f60a.png","bomb":"1f4a3.png","boom":"1f4a5.png","broken_heart":"1f494.png","brown_heart":"1f90e.png","clown_face":"1f921.png","cold_face":"1f976.png","cold_sweat":"1f630.png","confounded":"1f616.png","confused":"1f615.png","cry":"1f622.png","crying_cat_face":"1f63f.png","cupid":"1f498.png","dash":"1f4a8.png","disappointed":"1f61e.png","disappointed_relieved":"1f625.png","dizzy":"1f4ab.png","dizzy_face":"1f635.png","drooling_face":"1f924.png","exploding_head":"1f92f.png","expressionless":"1f611.png","face_vomiting":"1f92e.png","face_with_cowboy_hat":"1f920.png","face_with_hand_over_mouth":"1f92d.png","face_with_head_bandage":"1f915.png","face_with_monocle":"1f9d0.png","face_with_raised_eyebrow":"1f928.png","face_with_rolling_eyes":"1f644.png","face_with_symbols_on_mouth":"1f92c.png","face_with_thermometer":"1f912.png","fearful":"1f628.png","flushed":"1f633.png","frowning":"1f626.png","ghost":"1f47b.png","gift_heart":"1f49d.png","green_heart":"1f49a.png","grimacing":"1f62c.png","grin":"1f601.png","grinning":"1f600.png","hankey":"1f4a9.png","hear_no_evil":"1f649.png","heart":"2764-fe0f.png","heart_decoration":"1f49f.png","heart_eyes":"1f60d.png","heart_eyes_cat":"1f63b.png","heartbeat":"1f493.png","heartpulse":"1f497.png","heavy_heart_exclamation_mark_ornament":"2763-fe0f.png","hole":"1f573-fe0f.png","hot_face":"1f975.png","hugging_face":"1f917.png","hushed":"1f62f.png","imp":"1f47f.png","innocent":"1f607.png","japanese_goblin":"1f47a.png","japanese_ogre":"1f479.png","joy":"1f602.png","joy_cat":"1f639.png","kiss":"1f48b.png","kissing":"1f617.png","kissing_cat":"1f63d.png","kissing_closed_eyes":"1f61a.png","kissing_heart":"1f618.png","kissing_smiling_eyes":"1f619.png","laughing":"1f606.png","left_speech_bubble":"1f5e8-fe0f.png","love_letter":"1f48c.png","lying_face":"1f925.png","mask":"1f637.png","money_mouth_face":"1f911.png","nauseated_face":"1f922.png","nerd_face":"1f913.png","neutral_face":"1f610.png","no_mouth":"1f636.png","open_mouth":"1f62e.png","orange_heart":"1f9e1.png","partying_face":"1f973.png","pensive":"1f614.png","persevere":"1f623.png","pleading_face":"1f97a.png","pouting_cat":"1f63e.png","purple_heart":"1f49c.png","rage":"1f621.png","relaxed":"263a-fe0f.png","relieved":"1f60c.png","revolving_hearts":"1f49e.png","right_anger_bubble":"1f5ef-fe0f.png","robot_face":"1f916.png","rolling_on_the_floor_laughing":"1f923.png","scream":"1f631.png","scream_cat":"1f640.png","see_no_evil":"1f648.png","shushing_face":"1f92b.png","skull":"1f480.png","skull_and_crossbones":"2620-fe0f.png","sleeping":"1f634.png","sleepy":"1f62a.png","slightly_frowning_face":"1f641.png","slightly_smiling_face":"1f642.png","smile":"1f604.png","smile_cat":"1f638.png","smiley":"1f603.png","smiley_cat":"1f63a.png","smiling_face_with_3_hearts":"1f970.png","smiling_imp":"1f608.png","smirk":"1f60f.png","smirk_cat":"1f63c.png","sneezing_face":"1f927.png","sob":"1f62d.png","space_invader":"1f47e.png","sparkling_heart":"1f496.png","speak_no_evil":"1f64a.png","speech_balloon":"1f4ac.png","star-struck":"1f929.png","stuck_out_tongue":"1f61b.png","stuck_out_tongue_closed_eyes":"1f61d.png","stuck_out_tongue_winking_eye":"1f61c.png","sunglasses":"1f60e.png","sweat":"1f613.png","sweat_drops":"1f4a6.png","sweat_smile":"1f605.png","thinking_face":"1f914.png","thought_balloon":"1f4ad.png","tired_face":"1f62b.png","triumph":"1f624.png","two_hearts":"1f495.png","unamused":"1f612.png","upside_down_face":"1f643.png","weary":"1f629.png","white_frowning_face":"2639-fe0f.png","white_heart":"1f90d.png","wink":"1f609.png","woozy_face":"1f974.png","worried":"1f61f.png","yawning_face":"1f971.png","yellow_heart":"1f49b.png","yum":"1f60b.png","zany_face":"1f92a.png","zipper_mouth_face":"1f910.png","zzz":"1f4a4.png"},"enableQQ":false,"highlight":true,"lang":"zh-CN","pageSize":10,"placeholder":"你的评论 ...","recordIP":true,"serverURLs":"https://leancloud.hugoloveit.com","visitor":true}},"search":{"algoliaAppID":"CXA3BUV2HR","algoliaIndex":"blog","algoliaSearchKey":"a99366a402b9cd2ab556ca28fecb4749","highlightTag":"em","maxResultLength":10,"noResultsFound":"没有找到结果","snippetLength":50,"type":"algolia"}};</script><script type="text/javascript" src="/js/theme.min.js"></script></body>
+</html>

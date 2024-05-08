@@ -1,0 +1,348 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+    <head>
+        <meta charset="utf-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <meta name="robots" content="noodp" />
+        <title>kilim疑问解答 - Saul&#39;s blog</title><meta name="Description" content="Saul&#39;s blog"><meta property="og:url" content="https://jordanzheng.github.io/question-about-kilim/">
+  <meta property="og:site_name" content="Saul&#39;s blog">
+  <meta property="og:title" content="kilim疑问解答">
+  <meta property="og:description" content="1. Kilim中的Task，即用户线程如何调度和切换？ 相比传统的Thread多线程间抢占式调度，Kilim中的Task采用的是协作式调度，即由">
+  <meta property="og:locale" content="zh-CN">
+  <meta property="og:type" content="article">
+    <meta property="article:section" content="posts">
+    <meta property="article:published_time" content="2019-02-03T22:31:07+00:00">
+    <meta property="article:modified_time" content="2024-05-07T19:59:43+08:00">
+    <meta property="article:tag" content="协程">
+    <meta property="article:tag" content="Java">
+    <meta property="og:image" content="https://jordanzheng.github.io/logo.png">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:image" content="https://jordanzheng.github.io/logo.png"><meta name="twitter:title" content="kilim疑问解答">
+<meta name="twitter:description" content="1. Kilim中的Task，即用户线程如何调度和切换？ 相比传统的Thread多线程间抢占式调度，Kilim中的Task采用的是协作式调度，即由">
+<meta name="application-name" content="Saul&#39;s blog">
+<meta name="apple-mobile-web-app-title" content="Saul&#39;s blog"><meta name="theme-color" content="#ffffff"><meta name="msapplication-TileColor" content="#da532c"><link rel="shortcut icon" type="image/x-icon" href="/favicon.ico" />
+        <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png">
+        <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png"><link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png"><link rel="mask-icon" href="/safari-pinned-tab.svg" color="#5bbad5"><link rel="manifest" href="/site.webmanifest"><link rel="canonical" href="https://jordanzheng.github.io/question-about-kilim/" /><link rel="prev" href="https://jordanzheng.github.io/simple-analysis-kilim/" /><link rel="next" href="https://jordanzheng.github.io/parsing-mapstringinterface-data-format-for-go/" /><link rel="stylesheet" href="/css/style.min.css"><link rel="preload" href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.1.1/css/all.min.css" as="style" onload="this.onload=null;this.rel='stylesheet'">
+        <noscript><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.1.1/css/all.min.css"></noscript><link rel="preload" href="https://cdn.jsdelivr.net/npm/animate.css@4.1.1/animate.min.css" as="style" onload="this.onload=null;this.rel='stylesheet'">
+        <noscript><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/animate.css@4.1.1/animate.min.css"></noscript><script type="application/ld+json">
+    {
+        "@context": "http://schema.org",
+        "@type": "BlogPosting",
+        "headline": "kilim疑问解答",
+        "inLanguage": "zh-CN",
+        "mainEntityOfPage": {
+            "@type": "WebPage",
+            "@id": "https:\/\/jordanzheng.github.io\/question-about-kilim\/"
+        },"image": ["https:\/\/jordanzheng.github.io\/images\/Apple-Devices-Preview.png"],"genre": "posts","keywords": "协程, java","wordcount":  3067 ,
+        "url": "https:\/\/jordanzheng.github.io\/question-about-kilim\/","datePublished": "2019-02-03T22:31:07+00:00","dateModified": "2024-05-07T19:59:43+08:00","license": "This work is licensed under a Creative Commons Attribution-NonCommercial 4.0 International License.","publisher": {
+            "@type": "Organization",
+            "name": "xxxx","logo": "https:\/\/jordanzheng.github.io\/images\/avatar.png"},"author": {
+                "@type": "Person",
+                "name": "saul"
+            },"description": ""
+    }
+    </script></head>
+    <body data-header-desktop="fixed" data-header-mobile="auto"><script type="text/javascript">(window.localStorage && localStorage.getItem('theme') ? localStorage.getItem('theme') === 'dark' : ('auto' === 'auto' ? window.matchMedia('(prefers-color-scheme: dark)').matches : 'auto' === 'dark')) && document.body.setAttribute('theme', 'dark');</script>
+
+        <div id="mask"></div><div class="wrapper"><header class="desktop" id="header-desktop">
+    <div class="header-wrapper">
+        <div class="header-title">
+            <a href="/" title="Saul&#39;s blog"><span class="header-title-pre"><i class='far fa-kiss-wink-heart fa-fw' aria-hidden='true'></i></span>Saul&#39;s blog</a>
+        </div>
+        <div class="menu">
+            <div class="menu-inner"><a class="menu-item" href="/posts/"> 所有文章 </a><a class="menu-item" href="/tags/"> 标签 </a><a class="menu-item" href="/categories/"> 分类 </a><a class="menu-item" href="/about/"> 关于 </a><a class="menu-item" href="https://github.com/Jordanzheng" title="GitHub" rel="noopener noreffer" target="_blank"><i class='fab fa-github fa-fw' aria-hidden='true'></i>  </a><span class="menu-item delimiter"></span><span class="menu-item search" id="search-desktop">
+                        <input type="text" placeholder="搜索文章标题或内容..." id="search-input-desktop">
+                        <a href="javascript:void(0);" class="search-button search-toggle" id="search-toggle-desktop" title="搜索">
+                            <i class="fas fa-search fa-fw" aria-hidden="true"></i>
+                        </a>
+                        <a href="javascript:void(0);" class="search-button search-clear" id="search-clear-desktop" title="清空">
+                            <i class="fas fa-times-circle fa-fw" aria-hidden="true"></i>
+                        </a>
+                        <span class="search-button search-loading" id="search-loading-desktop">
+                            <i class="fas fa-spinner fa-fw fa-spin" aria-hidden="true"></i>
+                        </span>
+                    </span><a href="javascript:void(0);" class="menu-item theme-switch" title="切换主题">
+                    <i class="fas fa-adjust fa-fw" aria-hidden="true"></i>
+                </a><a href="javascript:void(0);" class="menu-item language" title="选择语言">
+                    <i class="fa fa-globe" aria-hidden="true"></i>                      
+                    <select class="language-select" id="language-select-desktop" onchange="location = this.value;"><option value="/question-about-kilim/" selected>简体中文</option></select>
+                </a></div>
+        </div>
+    </div>
+</header><header class="mobile" id="header-mobile">
+    <div class="header-container">
+        <div class="header-wrapper">
+            <div class="header-title">
+                <a href="/" title="Saul&#39;s blog"><span class="header-title-pre"><i class='far fa-kiss-wink-heart fa-fw' aria-hidden='true'></i></span>Saul&#39;s blog</a>
+            </div>
+            <div class="menu-toggle" id="menu-toggle-mobile">
+                <span></span><span></span><span></span>
+            </div>
+        </div>
+        <div class="menu" id="menu-mobile"><div class="search-wrapper">
+                    <div class="search mobile" id="search-mobile">
+                        <input type="text" placeholder="搜索文章标题或内容..." id="search-input-mobile">
+                        <a href="javascript:void(0);" class="search-button search-toggle" id="search-toggle-mobile" title="搜索">
+                            <i class="fas fa-search fa-fw" aria-hidden="true"></i>
+                        </a>
+                        <a href="javascript:void(0);" class="search-button search-clear" id="search-clear-mobile" title="清空">
+                            <i class="fas fa-times-circle fa-fw" aria-hidden="true"></i>
+                        </a>
+                        <span class="search-button search-loading" id="search-loading-mobile">
+                            <i class="fas fa-spinner fa-fw fa-spin" aria-hidden="true"></i>
+                        </span>
+                    </div>
+                    <a href="javascript:void(0);" class="search-cancel" id="search-cancel-mobile">
+                        取消
+                    </a>
+                </div><a class="menu-item" href="/posts/" title="">所有文章</a><a class="menu-item" href="/tags/" title="">标签</a><a class="menu-item" href="/categories/" title="">分类</a><a class="menu-item" href="/about/" title="">关于</a><a class="menu-item" href="https://github.com/Jordanzheng" title="GitHub" rel="noopener noreffer" target="_blank"><i class='fab fa-github fa-fw' aria-hidden='true'></i></a><a href="javascript:void(0);" class="menu-item theme-switch" title="切换主题">
+                <i class="fas fa-adjust fa-fw" aria-hidden="true"></i>
+            </a><a href="javascript:void(0);" class="menu-item" title="选择语言">
+                    <i class="fa fa-globe fa-fw" aria-hidden="true"></i>
+                    <select class="language-select" onchange="location = this.value;"><option value="/question-about-kilim/" selected>简体中文</option></select>
+                </a></div>
+    </div>
+</header><div class="search-dropdown desktop">
+        <div id="search-dropdown-desktop"></div>
+    </div>
+    <div class="search-dropdown mobile">
+        <div id="search-dropdown-mobile"></div>
+    </div><main class="main">
+                <div class="container"><div class="toc" id="toc-auto">
+            <h2 class="toc-title">目录</h2>
+            <div class="toc-content" id="toc-content-auto"></div>
+        </div><article class="page single"><h1 class="single-title animate__animated animate__flipInX">kilim疑问解答</h1><div class="post-meta">
+            <div class="post-meta-line"><span class="post-author"><a href="/" title="Author" rel="author" class="author"><i class="fas fa-user-circle fa-fw" aria-hidden="true"></i>saul</a></span>&nbsp;<span class="post-category">收录于 <a href="/categories/%E7%BB%8F%E9%AA%8C%E6%80%BB%E7%BB%93/"><i class="far fa-folder fa-fw" aria-hidden="true"></i>经验总结</a></span></div>
+            <div class="post-meta-line"><i class="far fa-calendar-alt fa-fw" aria-hidden="true"></i>&nbsp;<time datetime="2019-02-03">2019-02-03</time>&nbsp;<i class="fas fa-pencil-alt fa-fw" aria-hidden="true"></i>&nbsp;约 3067 字&nbsp;
+                <i class="far fa-clock fa-fw" aria-hidden="true"></i>&nbsp;预计阅读 7 分钟&nbsp;<span id="/question-about-kilim/" class="leancloud_visitors" data-flag-title="kilim疑问解答">
+                        <i class="far fa-eye fa-fw" aria-hidden="true"></i>&nbsp;<span class=leancloud-visitors-count></span>&nbsp;次阅读
+                    </span>&nbsp;</div>
+        </div><div class="details toc" id="toc-static"  data-kept="">
+                <div class="details-summary toc-title">
+                    <span>目录</span>
+                    <span><i class="details-icon fas fa-angle-right" aria-hidden="true"></i></span>
+                </div>
+                <div class="details-content toc-content" id="toc-content-static"><nav id="TableOfContents">
+  <ul>
+    <li><a href="#1-kilim中的task即用户线程如何调度和切换">1. Kilim中的Task，即用户线程如何调度和切换？</a></li>
+    <li><a href="#2kilim如何识别线程堆栈中哪些方法是pauseable即可暂停的">2.Kilim如何识别线程堆栈中哪些方法是Pauseable，即可暂停的？</a></li>
+    <li><a href="#3kilim是如何实现线程执行过程中当前方法的暂停和恢复">3.Kilim是如何实现线程执行过程中当前方法的暂停和恢复？</a></li>
+    <li><a href="#4kilim中的weaver工具是如何针对编译的代码实现织入的">4.Kilim中的Weaver<strong>工具是如何针对编译的代码实现织入的</strong>？</a></li>
+    <li><a href="#5如何将一个传统的线程执行方法改造成kilim的task模型">5.如何将一个传统的线程执行方法改造成Kilim的Task模型？</a></li>
+    <li><a href="#6--kilim中哪些操作可以使得task暂停或者恢复运行">6.  Kilim中哪些操作可以使得Task暂停或者恢复运行？</a></li>
+    <li><a href="#7--kilim中task占用的内存有多大">7.  Kilim中Task占用的内存有多大？</a></li>
+    <li><a href="#8--kilim中fiber的作用">8.  Kilim中Fiber的作用</a></li>
+    <li><a href="#9--kilim中fiber中的pc的真正含义">9.  Kilim中Fiber中的pc的真正含义？</a></li>
+    <li><a href="#10-kilim中fiber中state的作用">10. Kilim中Fiber中State的作用？</a></li>
+    <li><a href="#11什么场景下适合做kilim协程">11.什么场景下适合做Kilim协程？</a></li>
+    <li><a href="#12kilim中task的工作机制">12.Kilim中Task的工作机制？</a></li>
+    <li><a href="#13kilim框架做了什么">13.Kilim框架做了什么？</a></li>
+  </ul>
+</nav></div>
+            </div><div class="content" id="content"><h2 id="1-kilim中的task即用户线程如何调度和切换">1. Kilim中的Task，即用户线程如何调度和切换？</h2>
+<p>相比传统的Thread多线程间抢占式调度，Kilim中的Task采用的是协作式调度，即由Task本身负责释放和恢复占用CPU
+在多任务的调度上操作系统采取抢占式和协作式两种方式。</p>
+<h2 id="2kilim如何识别线程堆栈中哪些方法是pauseable即可暂停的">2.Kilim如何识别线程堆栈中哪些方法是Pauseable，即可暂停的？</h2>
+<p>Kilim通过代码编译期识别抛出的Pauseable异常注解，来判断识别方法可暂停</p>
+<h2 id="3kilim是如何实现线程执行过程中当前方法的暂停和恢复">3.Kilim是如何实现线程执行过程中当前方法的暂停和恢复？</h2>
+<p>Kilim通过编译期字节码编织，对每一个可暂停的方法进行字节码处理，在方法执行前和执行后加上相关的执行上下文的处理，暂停时会保存整个线程堆栈，包括完整栈帧，程序计数器等等，然后通过特定的字节码跳转指令jsr跳转到另外一个Task的执行方法中，恢复时将复原整个线程堆栈，包括完整栈帧，程序计数器等等，回到上次暂停时的指令地址处继续执行。</p>
+<h2 id="4kilim中的weaver工具是如何针对编译的代码实现织入的">4.Kilim中的Weaver<strong>工具是如何针对编译的代码实现织入的</strong>？</h2>
+<p>字节码技术，具体来说通过ASM字节码框架实现对class文件的重写</p>
+<h2 id="5如何将一个传统的线程执行方法改造成kilim的task模型">5.如何将一个传统的线程执行方法改造成Kilim的Task模型？</h2>
+<p>Kilim通过编译期字节码编织，对每一个可暂停的方法进行字节码处理，在方法执行前和执行后加上相关的执行上下文的处理：</p>
+<ul>
+<li>首先需要实现一个类继承Task，实现Task的execute方法，业务逻辑不再放在线程的run方法体体，而是放在Task的execute方法体中。</li>
+<li>execute方法中调用的方法如果是可能暂停的，则必须声明抛出Pauseable异常，否则可以不需要抛出。</li>
+<li>Task之间的通信通过Mailbox邮箱来传递消息，put和get时存在三种版本，包括阻塞线程，阻塞Task但不阻塞线程，非阻塞。</li>
+<li>针对这些Task和Pauseable方法编译时，需要使用Kilim提供的Weaver工具进行编织处理，如果不进行编织处理，运行时将会异常。</li>
+<li>对于Kilim中的方法需要注意，一个Pauseable方法只能被另一个Pauseable方法调用。</li>
+</ul>
+<h2 id="6--kilim中哪些操作可以使得task暂停或者恢复运行">6.  Kilim中哪些操作可以使得Task暂停或者恢复运行？</h2>
+<p>Kilim中常用有以下方法暂停、恢复Task的运行：</p>
+<ul>
+<li>Task.sleep()能使当前Task暂停运行一段时间</li>
+<li>Task.yield()能使当前Task暂停放弃运行</li>
+<li>Task.pause()能使当前Task暂停执行</li>
+<li>Task.resume()能使当前Task恢复执行</li>
+<li>Mailbox.get()能使当前Task暂停执行直到Mailbox队列非空。</li>
+</ul>
+<h2 id="7--kilim中task占用的内存有多大">7.  Kilim中Task占用的内存有多大？</h2>
+<p>一个Task所占用的内存包括以下部分：</p>
+<ul>
+<li>Task的具体实现类实例本身占用的内存</li>
+<li>Task之间通信依赖的Maibox的内容占用的内存</li>
+<li>如果Task暂停，那么Task函数调用链上的函数栈帧数组需要保存到Fiber中，不过Kilim的Weaver工具在代码编译期间将分析代码控制流程、有用的变量、常量等，保证只保存在后续Task恢复执行时需要用到的数据。</li>
+</ul>
+<h2 id="8--kilim中fiber的作用">8.  Kilim中Fiber的作用</h2>
+<p>Fiber主要作用用来管理和保存Task执行过程中调用层次中的函数栈帧的状态，这里的函数栈帧与JVM运行时中的函数栈帧是相同含义，但是Fiber不会将函数栈帧中的全部信息原封不动的镜像拷贝一份，比如局部变量表中的所有变量，而是经过代码分析之后有选择的暂存有必要保留的变量，一般只需要保存后续执行流程中需要用到的变量，例如静态常量等就无需保存到Fiber中，因为静态变量可以直接通过iconst之类的字节码直接加载到操作数栈。</p>
+<h2 id="9--kilim中fiber中的pc的真正含义">9.  Kilim中Fiber中的pc的真正含义？</h2>
+<p>Fiber中的pc，字面意义是指程序计数器，实际含义是：如果pc值为0，则表示第一次开始执行，程序执行流程和字节码增强前的流程是一样的；如果pc值为N，则表示直接跳转至本函数中第N个Pauseable方法处开始执行，说明之前执行到第N个Pauseable方法时暂停了，此时Task恢复执行，字节码层面通过tableswitch指令将直接跳转该Pauseable方法处执行，也即再次进入该函数执行体。以此类推，整个函数调用链均按照这种逻辑流转。</p>
+<div class="highlight"><div class="chroma">
+<table class="lntable"><tr><td class="lntd">
+<pre tabindex="0" class="chroma"><code><span class="lnt"> 1
+</span><span class="lnt"> 2
+</span><span class="lnt"> 3
+</span><span class="lnt"> 4
+</span><span class="lnt"> 5
+</span><span class="lnt"> 6
+</span><span class="lnt"> 7
+</span><span class="lnt"> 8
+</span><span class="lnt"> 9
+</span><span class="lnt">10
+</span><span class="lnt">11
+</span><span class="lnt">12
+</span><span class="lnt">13
+</span></code></pre></td>
+<td class="lntd">
+<pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kt">void</span><span class="w"> </span><span class="nf">function</span><span class="p">()</span><span class="w"> </span><span class="k">throw</span><span class="w"> </span><span class="n">Pauseable</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w"></span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">XXX</span><span class="p">;</span><span class="w">  </span><span class="c1">// 临时变量等初始化</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">A</span><span class="p">();</span><span class="w">  </span><span class="c1">// function A is pauseable，如果执行到函数A 暂停了，则pc=1</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">B</span><span class="p">();</span><span class="w">  </span><span class="c1">// function B is pauseable，如果执行到函数B暂停了，则pc=2，下次恢复时从function()函数入口直接跳转到这里，执行函数B</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">C</span><span class="p">();</span><span class="w">  </span><span class="c1">// function C is pauseable，如果执行到函数B暂停了，则pc=3，下次恢复时从function()函数入口直接跳转到这里，执行函数C  </span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w"></span><span class="p">}</span><span class="w">
+</span></span></span></code></pre></td></tr></table>
+</div>
+</div><h2 id="10-kilim中fiber中state的作用">10. Kilim中Fiber中State的作用？</h2>
+<p>Fiber中的State作用主要体现在curState和stateStack两个变量，它们用来维护函数调用链执行过程中的函数栈帧。</p>
+<p>当Task将要执行某个Pauseable方法时，将首先调用Fiber的down方法，来记录当前执行到整个函数调用链中的下一层次，并记录curState和pc。</p>
+<p>当Task在执行某个Pauseable方法过程中暂停时，内部会调用Task的pause方法，而pause直接调用togglePause方法，这个方法会根据curState是否为null，来设置Fiber的isPausing的值，而isPausing表示Task是暂停还是恢复，相应源码如下：</p>
+<div class="highlight"><div class="chroma">
+<table class="lntable"><tr><td class="lntd">
+<pre tabindex="0" class="chroma"><code><span class="lnt"> 1
+</span><span class="lnt"> 2
+</span><span class="lnt"> 3
+</span><span class="lnt"> 4
+</span><span class="lnt"> 5
+</span><span class="lnt"> 6
+</span><span class="lnt"> 7
+</span><span class="lnt"> 8
+</span><span class="lnt"> 9
+</span><span class="lnt">10
+</span><span class="lnt">11
+</span></code></pre></td>
+<td class="lntd">
+<pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">curState</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="kc">null</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">setState</span><span class="p">(</span><span class="n">PAUSE_STATE</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w"></span><span class="p">}</span><span class="w"> </span><span class="k">else</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">stateStack</span><span class="o">[</span><span class="n">iStack</span><span class="o">]</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="kc">null</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">isPausing</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="kc">false</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w"></span><span class="p">}</span><span class="w">
+</span></span></span></code></pre></td></tr></table>
+</div>
+</div><p>当Task执行完某个Pauseable方法时，将会调用Fiber的up方法，标识调用某个Pauseable方法返回，且up方法的返回值表示该Pauseable方法是正常返回还是暂停返回，因为up方法内部会根据Fiber中的isPausing变量值和本函数栈帧stateStack[iStack]是否为null来判断是否暂停，以及函数栈帧是否已经保存。如果是PAUSING__NO_STATE，说明被调函数暂停，本函数还未保存栈帧，则需要将本函数栈帧，一般后续执行需要使用到的变量（包括函数实参、函数局部变量）保存到State中，也即 stateStack[iStack]，</p>
+<div class="highlight"><div class="chroma">
+<table class="lntable"><tr><td class="lntd">
+<pre tabindex="0" class="chroma"><code><span class="lnt"> 1
+</span><span class="lnt"> 2
+</span><span class="lnt"> 3
+</span><span class="lnt"> 4
+</span><span class="lnt"> 5
+</span><span class="lnt"> 6
+</span><span class="lnt"> 7
+</span><span class="lnt"> 8
+</span><span class="lnt"> 9
+</span><span class="lnt">10
+</span><span class="lnt">11
+</span><span class="lnt">12
+</span><span class="lnt">13
+</span><span class="lnt">14
+</span><span class="lnt">15
+</span><span class="lnt">16
+</span><span class="lnt">17
+</span><span class="lnt">18
+</span><span class="lnt">19
+</span><span class="lnt">20
+</span><span class="lnt">21
+</span><span class="lnt">22
+</span></code></pre></td>
+<td class="lntd">
+<pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="w">   </span><span class="cm">/*
+</span></span></span><span class="line"><span class="cl"><span class="cm">     * Status indicators returned by down()
+</span></span></span><span class="line"><span class="cl"><span class="cm">     *
+</span></span></span><span class="line"><span class="cl"><span class="cm">     * normal return, nothing to restore
+</span></span></span><span class="line"><span class="cl"><span class="cm">     */</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="kd">static</span><span class="w"> </span><span class="kd">final</span><span class="w"> </span><span class="kt">int</span><span class="w">   </span><span class="n">NOT_PAUSING__NO_STATE</span><span class="w">  </span><span class="o">=</span><span class="w"> </span><span class="n">0</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="cm">/*
+</span></span></span><span class="line"><span class="cl"><span class="cm">     * Normal return, have saved state to restore before resuming
+</span></span></span><span class="line"><span class="cl"><span class="cm">     */</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="kd">static</span><span class="w"> </span><span class="kd">final</span><span class="w"> </span><span class="kt">int</span><span class="w">   </span><span class="n">NOT_PAUSING__HAS_STATE</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">1</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="cm">/*
+</span></span></span><span class="line"><span class="cl"><span class="cm">     * Pausing, and need to save state before returning
+</span></span></span><span class="line"><span class="cl"><span class="cm">     */</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="kd">static</span><span class="w"> </span><span class="kd">final</span><span class="w"> </span><span class="kt">int</span><span class="w">   </span><span class="n">PAUSING__NO_STATE</span><span class="w">      </span><span class="o">=</span><span class="w"> </span><span class="n">2</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="cm">/*
+</span></span></span><span class="line"><span class="cl"><span class="cm">     * Pausing, and have saved state from an earlier invocation,
+</span></span></span><span class="line"><span class="cl"><span class="cm">     * so nothing left to do.
+</span></span></span><span class="line"><span class="cl"><span class="cm">     */</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="kd">static</span><span class="w"> </span><span class="kd">final</span><span class="w"> </span><span class="kt">int</span><span class="w">   </span><span class="n">PAUSING__HAS_STATE</span><span class="w">     </span><span class="o">=</span><span class="w"> </span><span class="n">3</span><span class="p">;</span><span class="w">
+</span></span></span></code></pre></td></tr></table>
+</div>
+</div><h2 id="11什么场景下适合做kilim协程">11.什么场景下适合做Kilim协程？</h2>
+<p><strong>IO密集型的应用比较适合使用协程</strong>，比如应用中存在较多的与后端的网络交互，存在较多的时间在等待后端响应,可以保证线程不会阻塞在等待网络响应，充分利用多核多线程的能力。而对于CPU密集型应用，由于大部分情况CPU都比较繁忙，Kilim反而不会产生很好的作用。</p>
+<h2 id="12kilim中task的工作机制">12.Kilim中Task的工作机制？</h2>
+<p>Actor采取的这种类似消息机制的方式，实际在守护线程和外部线程之间有一个队列，俗称信箱，外部线程只要把请求放入，守护线程就读取进行处理。这种异步高效方式是Actor基本原理。Task 是轻量型的线程，它们通过 Kilim 的 Mailbox 类型与其他 Task 通信。</p>
+<h2 id="13kilim框架做了什么">13.Kilim框架做了什么？</h2>
+<ol>
+<li>利用字节码增强(基于ASM字节码框架)，将普通代码转化为支持协程的代码；</li>
+<li>调用pausable的时候，如果pause了就保存当前方法栈的State，停止执行，将控制权交给调度器；</li>
+<li>调度器负责协调就绪的协程；</li>
+<li>协程resume的时候，自动恢复State，回复到上次执行的位置继续执行</li>
+</ol>
+</div><div class="post-footer" id="post-footer">
+    <div class="post-info">
+        <div class="post-info-line">
+            <div class="post-info-mod">
+                <span>更新于 2024-05-07&nbsp;<a class="git-hash" href="https://github.com/dillonzq/LoveIt/commit/ea24eeeb4f0ff4106d70fde63f8b303f17c67393" target="_blank" title="commit by Jordanzheng(saulhadis@gmail.com) ea24eeeb4f0ff4106d70fde63f8b303f17c67393: master: init">
+                                    <i class="fas fa-hashtag fa-fw" aria-hidden="true"></i>ea24eee</a></span>
+            </div></div>
+        <div class="post-info-line">
+            <div class="post-info-md"><span>
+                            <a class="link-to-markdown" href="/question-about-kilim/index.md" target="_blank">阅读原始文档</a>
+                        </span></div>
+            <div class="post-info-share">
+                <span><a href="javascript:void(0);" title="分享到 Twitter" data-sharer="twitter" data-url="https://jordanzheng.github.io/question-about-kilim/" data-title="kilim疑问解答" data-hashtags="协程,java"><i class="fab fa-twitter fa-fw" aria-hidden="true"></i></a><a href="javascript:void(0);" title="分享到 Hacker News" data-sharer="hackernews" data-url="https://jordanzheng.github.io/question-about-kilim/" data-title="kilim疑问解答"><i class="fab fa-hacker-news fa-fw" aria-hidden="true"></i></a><a href="javascript:void(0);" title="分享到 微博" data-sharer="weibo" data-url="https://jordanzheng.github.io/question-about-kilim/" data-title="kilim疑问解答" data-ralateuid="xxxx"><i class="fab fa-weibo fa-fw" aria-hidden="true"></i></a></span>
+            </div>
+        </div>
+    </div>
+
+    <div class="post-info-more">
+        <section class="post-tags"><i class="fas fa-tags fa-fw" aria-hidden="true"></i>&nbsp;<a href="/tags/%E5%8D%8F%E7%A8%8B/">协程</a>,&nbsp;<a href="/tags/java/">Java</a></section>
+        <section>
+            <span><a href="javascript:void(0);" onclick="window.history.back();">返回</a></span>&nbsp;|&nbsp;<span><a href="/">主页</a></span>
+        </section>
+    </div>
+
+    <div class="post-nav"><a href="/simple-analysis-kilim/" class="prev" rel="prev" title="浅谈Java协程开源库---kilim"><i class="fas fa-angle-left fa-fw" aria-hidden="true"></i>浅谈Java协程开源库---kilim</a>
+            <a href="/parsing-mapstringinterface-data-format-for-go/" class="next" rel="next" title="go语言解析map[string]interface{}的注意事项">go语言解析map[string]interface{}的注意事项<i class="fas fa-angle-right fa-fw" aria-hidden="true"></i></a></div>
+</div>
+<div id="comments"><div id="valine" class="comment"></div><noscript>
+                Please enable JavaScript to view the comments powered by <a href="https://valine.js.org/">Valine</a>.
+            </noscript></div></article></div>
+            </main><footer class="footer">
+        <div class="footer-container"><div class="footer-line">由 <a href="https://gohugo.io/" target="_blank" rel="noopener noreffer" title="Hugo 0.125.6">Hugo</a> 强力驱动 | 主题 - <a href="https://github.com/dillonzq/LoveIt" target="_blank" rel="noopener noreffer" title="LoveIt 0.2.11"><i class="far fa-kiss-wink-heart fa-fw" aria-hidden="true"></i> LoveIt</a>
+                </div><div class="footer-line" itemscope itemtype="http://schema.org/CreativeWork"><i class="far fa-copyright fa-fw" aria-hidden="true"></i><span itemprop="copyrightYear">2016 - 2024</span><span class="author" itemprop="copyrightHolder">&nbsp;<a href="/" target="_blank">saul</a></span>&nbsp;|&nbsp;<span class="license"><a rel="license external nofollow noopener noreffer" href="https://creativecommons.org/licenses/by-nc/4.0/" target="_blank">CC BY-NC 4.0</a></span></div>
+        </div>
+    </footer></div>
+
+        <div id="fixed-buttons"><a href="#" id="back-to-top" class="fixed-button" title="回到顶部">
+                <i class="fas fa-arrow-up fa-fw" aria-hidden="true"></i>
+            </a><a href="#" id="view-comments" class="fixed-button" title="查看评论">
+                <i class="fas fa-comment fa-fw" aria-hidden="true"></i>
+            </a>
+        </div><link rel="stylesheet" href="/lib/valine/valine.min.css"><script type="text/javascript" src="https://cdn.jsdelivr.net/npm/valine@1.5.0/dist/Valine.min.js"></script><script type="text/javascript" src="https://cdn.jsdelivr.net/npm/autocomplete.js@0.38.1/dist/autocomplete.min.js"></script><script type="text/javascript" src="https://cdn.jsdelivr.net/npm/algoliasearch@4.13.1/dist/algoliasearch-lite.umd.min.js"></script><script type="text/javascript" src="https://cdn.jsdelivr.net/npm/lazysizes@5.3.2/lazysizes.min.js"></script><script type="text/javascript" src="https://cdn.jsdelivr.net/npm/clipboard@2.0.11/dist/clipboard.min.js"></script><script type="text/javascript" src="https://cdn.jsdelivr.net/npm/sharer.js@0.5.1/sharer.min.js"></script><script type="text/javascript">window.config={"code":{"copyTitle":"复制到剪贴板","maxShownLines":50},"comment":{"valine":{"appId":"QGzwQXOqs5JOhN4RGPOkR2mR-MdYXbMMI","appKey":"WBmoGyJtbqUswvfLh6L8iEBr","avatar":"mp","el":"#valine","emojiCDN":"https://cdn.jsdelivr.net/npm/emoji-datasource-google@14.0.0/img/google/64/","emojiMaps":{"100":"1f4af.png","alien":"1f47d.png","anger":"1f4a2.png","angry":"1f620.png","anguished":"1f627.png","astonished":"1f632.png","black_heart":"1f5a4.png","blue_heart":"1f499.png","blush":"1f60a.png","bomb":"1f4a3.png","boom":"1f4a5.png","broken_heart":"1f494.png","brown_heart":"1f90e.png","clown_face":"1f921.png","cold_face":"1f976.png","cold_sweat":"1f630.png","confounded":"1f616.png","confused":"1f615.png","cry":"1f622.png","crying_cat_face":"1f63f.png","cupid":"1f498.png","dash":"1f4a8.png","disappointed":"1f61e.png","disappointed_relieved":"1f625.png","dizzy":"1f4ab.png","dizzy_face":"1f635.png","drooling_face":"1f924.png","exploding_head":"1f92f.png","expressionless":"1f611.png","face_vomiting":"1f92e.png","face_with_cowboy_hat":"1f920.png","face_with_hand_over_mouth":"1f92d.png","face_with_head_bandage":"1f915.png","face_with_monocle":"1f9d0.png","face_with_raised_eyebrow":"1f928.png","face_with_rolling_eyes":"1f644.png","face_with_symbols_on_mouth":"1f92c.png","face_with_thermometer":"1f912.png","fearful":"1f628.png","flushed":"1f633.png","frowning":"1f626.png","ghost":"1f47b.png","gift_heart":"1f49d.png","green_heart":"1f49a.png","grimacing":"1f62c.png","grin":"1f601.png","grinning":"1f600.png","hankey":"1f4a9.png","hear_no_evil":"1f649.png","heart":"2764-fe0f.png","heart_decoration":"1f49f.png","heart_eyes":"1f60d.png","heart_eyes_cat":"1f63b.png","heartbeat":"1f493.png","heartpulse":"1f497.png","heavy_heart_exclamation_mark_ornament":"2763-fe0f.png","hole":"1f573-fe0f.png","hot_face":"1f975.png","hugging_face":"1f917.png","hushed":"1f62f.png","imp":"1f47f.png","innocent":"1f607.png","japanese_goblin":"1f47a.png","japanese_ogre":"1f479.png","joy":"1f602.png","joy_cat":"1f639.png","kiss":"1f48b.png","kissing":"1f617.png","kissing_cat":"1f63d.png","kissing_closed_eyes":"1f61a.png","kissing_heart":"1f618.png","kissing_smiling_eyes":"1f619.png","laughing":"1f606.png","left_speech_bubble":"1f5e8-fe0f.png","love_letter":"1f48c.png","lying_face":"1f925.png","mask":"1f637.png","money_mouth_face":"1f911.png","nauseated_face":"1f922.png","nerd_face":"1f913.png","neutral_face":"1f610.png","no_mouth":"1f636.png","open_mouth":"1f62e.png","orange_heart":"1f9e1.png","partying_face":"1f973.png","pensive":"1f614.png","persevere":"1f623.png","pleading_face":"1f97a.png","pouting_cat":"1f63e.png","purple_heart":"1f49c.png","rage":"1f621.png","relaxed":"263a-fe0f.png","relieved":"1f60c.png","revolving_hearts":"1f49e.png","right_anger_bubble":"1f5ef-fe0f.png","robot_face":"1f916.png","rolling_on_the_floor_laughing":"1f923.png","scream":"1f631.png","scream_cat":"1f640.png","see_no_evil":"1f648.png","shushing_face":"1f92b.png","skull":"1f480.png","skull_and_crossbones":"2620-fe0f.png","sleeping":"1f634.png","sleepy":"1f62a.png","slightly_frowning_face":"1f641.png","slightly_smiling_face":"1f642.png","smile":"1f604.png","smile_cat":"1f638.png","smiley":"1f603.png","smiley_cat":"1f63a.png","smiling_face_with_3_hearts":"1f970.png","smiling_imp":"1f608.png","smirk":"1f60f.png","smirk_cat":"1f63c.png","sneezing_face":"1f927.png","sob":"1f62d.png","space_invader":"1f47e.png","sparkling_heart":"1f496.png","speak_no_evil":"1f64a.png","speech_balloon":"1f4ac.png","star-struck":"1f929.png","stuck_out_tongue":"1f61b.png","stuck_out_tongue_closed_eyes":"1f61d.png","stuck_out_tongue_winking_eye":"1f61c.png","sunglasses":"1f60e.png","sweat":"1f613.png","sweat_drops":"1f4a6.png","sweat_smile":"1f605.png","thinking_face":"1f914.png","thought_balloon":"1f4ad.png","tired_face":"1f62b.png","triumph":"1f624.png","two_hearts":"1f495.png","unamused":"1f612.png","upside_down_face":"1f643.png","weary":"1f629.png","white_frowning_face":"2639-fe0f.png","white_heart":"1f90d.png","wink":"1f609.png","woozy_face":"1f974.png","worried":"1f61f.png","yawning_face":"1f971.png","yellow_heart":"1f49b.png","yum":"1f60b.png","zany_face":"1f92a.png","zipper_mouth_face":"1f910.png","zzz":"1f4a4.png"},"enableQQ":false,"highlight":true,"lang":"zh-CN","pageSize":10,"placeholder":"你的评论 ...","recordIP":true,"serverURLs":"https://leancloud.hugoloveit.com","visitor":true}},"search":{"algoliaAppID":"CXA3BUV2HR","algoliaIndex":"blog","algoliaSearchKey":"a99366a402b9cd2ab556ca28fecb4749","highlightTag":"em","maxResultLength":10,"noResultsFound":"没有找到结果","snippetLength":50,"type":"algolia"}};</script><script type="text/javascript" src="/js/theme.min.js"></script></body>
+</html>

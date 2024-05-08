@@ -1,0 +1,302 @@
+<rss xmlns:atom="http://www.w3.org/2005/Atom" version="2.0">
+    <channel>
+        <title>软件开发 - 标签 - Saul&#39;s blog</title>
+        <link>https://jordanzheng.github.io/tags/%E8%BD%AF%E4%BB%B6%E5%BC%80%E5%8F%91/</link>
+        <description>软件开发 - 标签 - Saul&#39;s blog</description>
+        <generator>Hugo -- gohugo.io</generator><language>zh-CN</language><managingEditor>saulhadis@gmail.com (saul)</managingEditor>
+            <webMaster>saulhadis@gmail.com (saul)</webMaster><copyright>This work is licensed under a Creative Commons Attribution-NonCommercial 4.0 International License.</copyright><lastBuildDate>Sun, 14 Jul 2019 20:49:37 &#43;0000</lastBuildDate><atom:link href="https://jordanzheng.github.io/tags/%E8%BD%AF%E4%BB%B6%E5%BC%80%E5%8F%91/" rel="self" type="application/rss+xml" /><item>
+    <title>字节序：大端和小端</title>
+    <link>https://jordanzheng.github.io/byte-order/</link>
+    <pubDate>Sun, 14 Jul 2019 20:49:37 &#43;0000</pubDate>
+    <author>saul</author>
+    <guid>https://jordanzheng.github.io/byte-order/</guid>
+    <description><![CDATA[<h2 id="一字节序">一、字节序</h2>
+<p><strong>字节序</strong>，也就是字节的顺序，指的是多字节的数据在内存中的存放顺序。</p>
+<blockquote>
+<p>在几乎所有的机器上，多字节对象都被存储为连续的字节序列。例如在<a href="https://zh.wikipedia.org/wiki/C%e8%af%ad%e8%a8%80" target="_blank" rel="noopener noreffer ">C语言</a>中，一个类型为<code>int</code>的变量<code>x</code>地址为<code>0x100</code>，那么其对应地址表达式<code>&amp;x</code>的值为<code>0x100</code>。且<code>x</code>的四个字节将被存储在<a href="https://zh.wikipedia.org/wiki/%e5%ad%98%e5%82%a8%e5%99%a8" target="_blank" rel="noopener noreffer ">存储器</a>的<code>0x100, 0x101, 0x102, 0x103</code>位置</p>
+</blockquote>
+<h2 id="二大端与小端">二、大端与小端</h2>
+<p>根据x在连续的4字节内存中存储的顺序，字节序分为<strong>大端序（Big Endian）</strong> 与 **小端序（Little Endian）**两类，数值<code>0x1234</code>使用两个字节储存：高位字节是<code>0x12</code>，低位字节是<code>0x34</code></p>
+<ul>
+<li>大端序：高位字节在前，低位字节在后，人类读写数值的方法</li>
+<li>小端序：低位字节在前，高位字节在后，通常x86架构以小端序存储数据</li>
+</ul>
+<!-- more -->
+<p>如图所示：</p>
+<p></p>
+<ul>
+<li>Big Endian 是指低地址端 存放 高位字节。</li>
+<li>Little Endian 是指低地址端 存放 低位字节</li>
+</ul>
+<h3 id="1为啥有大小端之分">1、为啥有大小端之分？</h3>
+<blockquote>
+<p>答案是，计算机电路先处理低位字节，效率比较高，因为计算都是从低位开始的。所以，计算机的内部处理都是小端字节序。在计算机内部，小端序被广泛应用于现代性 CPU 内部存储数据；而在其他场景譬如网络传输和文件存储使用大端序。</p>
+</blockquote>
+<blockquote>
+<p>使用小端序时不移动字节就能改变 number 占内存的大小而不需内存地址起始位。比如我想把四字节的 int32 类型的整型转变为八字节的 int64 整型，只需在小端序末端加零即可。</p>
+<div class="highlight"><div class="chroma">
+<table class="lntable"><tr><td class="lntd">
+<pre tabindex="0" class="chroma"><code><span class="lnt">1
+</span><span class="lnt">2
+</span></code></pre></td>
+<td class="lntd">
+<pre tabindex="0" class="chroma"><code class="language-go" data-lang="go"><span class="line"><span class="cl"><span class="mi">44</span> <span class="mi">33</span> <span class="mi">22</span> <span class="mi">11</span>
+</span></span><span class="line"><span class="cl"><span class="mi">44</span> <span class="mi">33</span> <span class="mi">22</span> <span class="mi">11</span> <span class="mo">00</span> <span class="mo">00</span> <span class="mo">00</span> <span class="mo">00</span>
+</span></span></code></pre></td></tr></table>
+</div>
+</div><p>上述扩展或缩小整型变量操作在编译器层面非常有用，但在网络协议层非也。</p>
+<p>在网络协议层操作二进制数字时约定使用大端序，大端序是网络字节传输采用的方式。因为大端序最高有效字节排在首位（低地址端存放高位字节），能够按照字典排序，所以我们能够比较二进制编码后数字的每个字节。</p>
+<div class="highlight"><div class="chroma">
+<table class="lntable"><tr><td class="lntd">
+<pre tabindex="0" class="chroma"><code><span class="lnt">1
+</span></code></pre></td>
+<td class="lntd">
+<pre tabindex="0" class="chroma"><code class="language-go" data-lang="go"><span class="line"><span class="cl"><span class="nx">fmt</span><span class="p">.</span><span class="nf">Println</span><span class="p">(</span><span class="nx">bytes</span><span class="p">.</span><span class="nf">Equal</span><span class="p">([]</span><span class="nb">byte</span><span class="p">(</span><span class="s">&#34;Go&#34;</span><span class="p">),</span> <span class="p">[]</span><span class="nb">byte</span><span class="p">(</span><span class="s">&#34;Go&#34;</span><span class="p">)))</span>  <span class="c1">// true
+</span></span></span></code></pre></td></tr></table>
+</div>
+</div></blockquote>
+<h3 id="2为什么要注意字节序">2、为什么要注意字节序?</h3>
+<p>当程序要与别的程序交互的时候，就涉及到字节序的处理。字节序的处理原则就是</p>
+<p><strong>&ldquo;只有读取的时候，才必须区分字节序，其他情况都不用考虑。&rdquo;</strong></p>
+<p>处理器读取外部数据的时候，必须知道数据的字节序，将其转成正确的值。然后，就正常使用这个值，完全不用再考虑字节序。</p>
+<p>即使是向外部设备写入数据，也不用考虑字节序，正常写入一个值即可。外部设备会自己处理字节序的问题。</p>
+<h2 id="三网络序和主机序">三、网络序和主机序</h2>
+<p><strong>网络字节序</strong>：TCP/IP各层协议将字节序定义为 Big Endian，因此TCP/IP协议中使用的字节序是大端序。</p>
+<p><strong>主机字节序</strong>：整数在内存中存储的顺序，现在 Little Endian 比较普遍。（不同的 CPU 有不同的字节序）</p>
+<blockquote>
+<p>在进行网络通信时 通常需要调用相应的函数进行主机序和网络序的转换。Berkeley socket API 定义了一组转换函数，用于16和32bit整数在网络序和本机字节序之间的转换。htonl，htons用于本机序转换到网络序；ntohl，ntohs用于网络序转换到本机序。</p>
+</blockquote>
+<h2 id="四各语言关于字节序的处理">四、各语言关于字节序的处理</h2>
+<h2 id="1java">1、Java</h2>
+<p>JAVA字节序默认是<strong>大端序（Big Endian）</strong>。由于JVM会根据底层的操作系统和CPU自动进行字节序的转换，所以我们使用java进行网络编程，几乎感觉不到字节序的存在。</p>
+<div class="highlight"><div class="chroma">
+<table class="lntable"><tr><td class="lntd">
+<pre tabindex="0" class="chroma"><code><span class="lnt"> 1
+</span><span class="lnt"> 2
+</span><span class="lnt"> 3
+</span><span class="lnt"> 4
+</span><span class="lnt"> 5
+</span><span class="lnt"> 6
+</span><span class="lnt"> 7
+</span><span class="lnt"> 8
+</span><span class="lnt"> 9
+</span><span class="lnt">10
+</span><span class="lnt">11
+</span><span class="lnt">12
+</span><span class="lnt">13
+</span><span class="lnt">14
+</span><span class="lnt">15
+</span><span class="lnt">16
+</span><span class="lnt">17
+</span><span class="lnt">18
+</span><span class="lnt">19
+</span><span class="lnt">20
+</span><span class="lnt">21
+</span><span class="lnt">22
+</span><span class="lnt">23
+</span></code></pre></td>
+<td class="lntd">
+<pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="kn">import</span><span class="w"> </span><span class="nn">java.nio.ByteBuffer</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w"></span><span class="kn">import</span><span class="w"> </span><span class="nn">java.nio.ByteOrder</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w"></span><span class="kn">import</span><span class="w"> </span><span class="nn">java.util.Arrays</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w"> 
+</span></span></span><span class="line"><span class="cl"><span class="w"></span><span class="kd">public</span><span class="w"> </span><span class="kd">class</span> <span class="nc">JVMEndianTest</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">	
+</span></span></span><span class="line"><span class="cl"><span class="w">	</span><span class="kd">public</span><span class="w"> </span><span class="kd">static</span><span class="w"> </span><span class="kt">void</span><span class="w"> </span><span class="nf">main</span><span class="p">(</span><span class="n">String</span><span class="o">[]</span><span class="w"> </span><span class="n">args</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">		
+</span></span></span><span class="line"><span class="cl"><span class="w">		</span><span class="kt">int</span><span class="w"> </span><span class="n">x</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">0x01020304</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">		
+</span></span></span><span class="line"><span class="cl"><span class="w">		</span><span class="n">ByteBuffer</span><span class="w"> </span><span class="n">bb</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">ByteBuffer</span><span class="p">.</span><span class="na">wrap</span><span class="p">(</span><span class="k">new</span><span class="w"> </span><span class="kt">byte</span><span class="o">[</span><span class="n">4</span><span class="o">]</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">		</span><span class="n">bb</span><span class="p">.</span><span class="na">asIntBuffer</span><span class="p">().</span><span class="na">put</span><span class="p">(</span><span class="n">x</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">		</span><span class="n">String</span><span class="w"> </span><span class="n">ss_before</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">Arrays</span><span class="p">.</span><span class="na">toString</span><span class="p">(</span><span class="n">bb</span><span class="p">.</span><span class="na">array</span><span class="p">());</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">		
+</span></span></span><span class="line"><span class="cl"><span class="w">		</span><span class="n">System</span><span class="p">.</span><span class="na">out</span><span class="p">.</span><span class="na">println</span><span class="p">(</span><span class="s">&#34;默认字节序 &#34;</span><span class="w"> </span><span class="o">+</span><span class="w">  </span><span class="n">bb</span><span class="p">.</span><span class="na">order</span><span class="p">().</span><span class="na">toString</span><span class="p">()</span><span class="w"> </span><span class="o">+</span><span class="w">  </span><span class="s">&#34;,&#34;</span><span class="w">  </span><span class="o">+</span><span class="w">  </span><span class="s">&#34; 内存数据 &#34;</span><span class="w"> </span><span class="o">+</span><span class="w">  </span><span class="n">ss_before</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">		
+</span></span></span><span class="line"><span class="cl"><span class="w">		</span><span class="n">bb</span><span class="p">.</span><span class="na">order</span><span class="p">(</span><span class="n">ByteOrder</span><span class="p">.</span><span class="na">LITTLE_ENDIAN</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">		</span><span class="n">bb</span><span class="p">.</span><span class="na">asIntBuffer</span><span class="p">().</span><span class="na">put</span><span class="p">(</span><span class="n">x</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">		</span><span class="n">String</span><span class="w"> </span><span class="n">ss_after</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">Arrays</span><span class="p">.</span><span class="na">toString</span><span class="p">(</span><span class="n">bb</span><span class="p">.</span><span class="na">array</span><span class="p">());</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">		
+</span></span></span><span class="line"><span class="cl"><span class="w">		</span><span class="n">System</span><span class="p">.</span><span class="na">out</span><span class="p">.</span><span class="na">println</span><span class="p">(</span><span class="s">&#34;修改字节序 &#34;</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="n">bb</span><span class="p">.</span><span class="na">order</span><span class="p">().</span><span class="na">toString</span><span class="p">()</span><span class="w"> </span><span class="o">+</span><span class="w">  </span><span class="s">&#34;,&#34;</span><span class="w">  </span><span class="o">+</span><span class="w">  </span><span class="s">&#34; 内存数据 &#34;</span><span class="w"> </span><span class="o">+</span><span class="w">  </span><span class="n">ss_after</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">	</span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w"></span><span class="p">}</span><span class="w">
+</span></span></span></code></pre></td></tr></table>
+</div>
+</div><h2 id="2c">2、C++</h2>
+<p>C/C++ 存储数据时的字节序依赖所在平台的CPU，所以可以通过C/C++程序判定机器的端序：</p>
+<div class="highlight"><div class="chroma">
+<table class="lntable"><tr><td class="lntd">
+<pre tabindex="0" class="chroma"><code><span class="lnt">1
+</span><span class="lnt">2
+</span><span class="lnt">3
+</span><span class="lnt">4
+</span><span class="lnt">5
+</span><span class="lnt">6
+</span><span class="lnt">7
+</span><span class="lnt">8
+</span></code></pre></td>
+<td class="lntd">
+<pre tabindex="0" class="chroma"><code class="language-c++" data-lang="c++"><span class="line"><span class="cl"><span class="kt">void</span> <span class="nf">Endianness</span><span class="p">()</span>
+</span></span><span class="line"><span class="cl"><span class="p">{</span>
+</span></span><span class="line"><span class="cl">	<span class="kt">int</span> <span class="n">a</span> <span class="o">=</span> <span class="mh">0x12345678</span><span class="p">;</span>
+</span></span><span class="line"><span class="cl">	<span class="k">if</span><span class="p">(</span> <span class="o">*</span><span class="p">((</span><span class="kt">char</span><span class="o">*</span><span class="p">)</span><span class="o">&amp;</span><span class="n">a</span><span class="p">)</span> <span class="o">==</span> <span class="mh">0x12</span><span class="p">)</span>
+</span></span><span class="line"><span class="cl">		<span class="n">cout</span> <span class="o">&lt;&lt;</span> <span class="s">&#34;Big Endian&#34;</span> <span class="o">&lt;&lt;</span> <span class="n">endl</span><span class="p">;</span>
+</span></span><span class="line"><span class="cl">	<span class="k">else</span>
+</span></span><span class="line"><span class="cl">		<span class="n">cout</span> <span class="o">&lt;&lt;</span> <span class="s">&#34;Little Endian&#34;</span> <span class="o">&lt;&lt;</span> <span class="n">endl</span><span class="p">;</span>
+</span></span><span class="line"><span class="cl"><span class="p">}</span>
+</span></span></code></pre></td></tr></table>
+</div>
+</div><h2 id="3go">3、go</h2>
+<p>Go中处理大小端序的代码位于 <code>encoding/binary</code> ,包中的全局变量BigEndian用于操作大端序数据，LittleEndian用于操作小端序数据，这两个变量所对应的数据类型都实行了ByteOrder接口。</p>
+<div class="highlight"><div class="chroma">
+<table class="lntable"><tr><td class="lntd">
+<pre tabindex="0" class="chroma"><code><span class="lnt"> 1
+</span><span class="lnt"> 2
+</span><span class="lnt"> 3
+</span><span class="lnt"> 4
+</span><span class="lnt"> 5
+</span><span class="lnt"> 6
+</span><span class="lnt"> 7
+</span><span class="lnt"> 8
+</span><span class="lnt"> 9
+</span><span class="lnt">10
+</span><span class="lnt">11
+</span><span class="lnt">12
+</span><span class="lnt">13
+</span><span class="lnt">14
+</span><span class="lnt">15
+</span><span class="lnt">16
+</span><span class="lnt">17
+</span><span class="lnt">18
+</span><span class="lnt">19
+</span><span class="lnt">20
+</span><span class="lnt">21
+</span><span class="lnt">22
+</span><span class="lnt">23
+</span><span class="lnt">24
+</span><span class="lnt">25
+</span><span class="lnt">26
+</span><span class="lnt">27
+</span><span class="lnt">28
+</span><span class="lnt">29
+</span><span class="lnt">30
+</span><span class="lnt">31
+</span><span class="lnt">32
+</span><span class="lnt">33
+</span><span class="lnt">34
+</span><span class="lnt">35
+</span><span class="lnt">36
+</span><span class="lnt">37
+</span><span class="lnt">38
+</span><span class="lnt">39
+</span><span class="lnt">40
+</span><span class="lnt">41
+</span><span class="lnt">42
+</span><span class="lnt">43
+</span><span class="lnt">44
+</span><span class="lnt">45
+</span><span class="lnt">46
+</span><span class="lnt">47
+</span><span class="lnt">48
+</span><span class="lnt">49
+</span><span class="lnt">50
+</span><span class="lnt">51
+</span><span class="lnt">52
+</span><span class="lnt">53
+</span><span class="lnt">54
+</span><span class="lnt">55
+</span><span class="lnt">56
+</span><span class="lnt">57
+</span><span class="lnt">58
+</span><span class="lnt">59
+</span><span class="lnt">60
+</span><span class="lnt">61
+</span></code></pre></td>
+<td class="lntd">
+<pre tabindex="0" class="chroma"><code class="language-go" data-lang="go"><span class="line"><span class="cl"><span class="kn">package</span> <span class="nx">main</span>
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl"><span class="kn">import</span> <span class="p">(</span>
+</span></span><span class="line"><span class="cl">	<span class="s">&#34;encoding/binary&#34;</span>
+</span></span><span class="line"><span class="cl">	<span class="s">&#34;fmt&#34;</span>
+</span></span><span class="line"><span class="cl">	<span class="s">&#34;unsafe&#34;</span>
+</span></span><span class="line"><span class="cl"><span class="p">)</span>
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl"><span class="kd">const</span> <span class="nx">INT_SIZE</span> <span class="p">=</span> <span class="nb">int</span><span class="p">(</span><span class="nx">unsafe</span><span class="p">.</span><span class="nf">Sizeof</span><span class="p">(</span><span class="mi">0</span><span class="p">))</span> <span class="c1">//64位操作系统，8 bytes
+</span></span></span><span class="line"><span class="cl"><span class="c1"></span>
+</span></span><span class="line"><span class="cl"><span class="c1">//判断我们系统中的字节序类型
+</span></span></span><span class="line"><span class="cl"><span class="c1"></span><span class="kd">func</span> <span class="nf">systemEdian</span><span class="p">()</span> <span class="p">{</span>
+</span></span><span class="line"><span class="cl">    
+</span></span><span class="line"><span class="cl">	<span class="kd">var</span> <span class="nx">i</span> <span class="p">=</span> <span class="mh">0x01020304</span>
+</span></span><span class="line"><span class="cl">	<span class="nx">fmt</span><span class="p">.</span><span class="nf">Println</span><span class="p">(</span><span class="s">&#34;&amp;i:&#34;</span><span class="p">,</span><span class="o">&amp;</span><span class="nx">i</span><span class="p">)</span>
+</span></span><span class="line"><span class="cl">	<span class="nx">bs</span> <span class="o">:=</span> <span class="p">(</span><span class="o">*</span><span class="p">[</span><span class="nx">INT_SIZE</span><span class="p">]</span><span class="kt">byte</span><span class="p">)(</span><span class="nx">unsafe</span><span class="p">.</span><span class="nf">Pointer</span><span class="p">(</span><span class="o">&amp;</span><span class="nx">i</span><span class="p">))</span>
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl">	<span class="k">if</span> <span class="nx">bs</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">==</span> <span class="mh">0x04</span> <span class="p">{</span>
+</span></span><span class="line"><span class="cl">		<span class="nx">fmt</span><span class="p">.</span><span class="nf">Println</span><span class="p">(</span><span class="s">&#34;system edian is little endian&#34;</span><span class="p">)</span>
+</span></span><span class="line"><span class="cl">	<span class="p">}</span> <span class="k">else</span> <span class="p">{</span>
+</span></span><span class="line"><span class="cl">		<span class="nx">fmt</span><span class="p">.</span><span class="nf">Println</span><span class="p">(</span><span class="s">&#34;system edian is big endian&#34;</span><span class="p">)</span>
+</span></span><span class="line"><span class="cl">	<span class="p">}</span>
+</span></span><span class="line"><span class="cl">	<span class="nx">fmt</span><span class="p">.</span><span class="nf">Printf</span><span class="p">(</span><span class="s">&#34;temp: 0x%x,%v\n&#34;</span><span class="p">,</span><span class="nx">bs</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span><span class="o">&amp;</span><span class="nx">bs</span><span class="p">[</span><span class="mi">0</span><span class="p">])</span>
+</span></span><span class="line"><span class="cl">	<span class="nx">fmt</span><span class="p">.</span><span class="nf">Printf</span><span class="p">(</span><span class="s">&#34;temp: 0x%x,%v\n&#34;</span><span class="p">,</span><span class="nx">bs</span><span class="p">[</span><span class="mi">1</span><span class="p">],</span><span class="o">&amp;</span><span class="nx">bs</span><span class="p">[</span><span class="mi">1</span><span class="p">])</span>
+</span></span><span class="line"><span class="cl">	<span class="nx">fmt</span><span class="p">.</span><span class="nf">Printf</span><span class="p">(</span><span class="s">&#34;temp: 0x%x,%v\n&#34;</span><span class="p">,</span><span class="nx">bs</span><span class="p">[</span><span class="mi">2</span><span class="p">],</span><span class="o">&amp;</span><span class="nx">bs</span><span class="p">[</span><span class="mi">2</span><span class="p">])</span>
+</span></span><span class="line"><span class="cl">	<span class="nx">fmt</span><span class="p">.</span><span class="nf">Printf</span><span class="p">(</span><span class="s">&#34;temp: 0x%x,%v\n&#34;</span><span class="p">,</span><span class="nx">bs</span><span class="p">[</span><span class="mi">3</span><span class="p">],</span><span class="o">&amp;</span><span class="nx">bs</span><span class="p">[</span><span class="mi">3</span><span class="p">])</span>
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl"><span class="p">}</span>
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl"><span class="kd">func</span> <span class="nf">testBigEndian</span><span class="p">()</span> <span class="p">{</span>
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl">	<span class="kd">var</span> <span class="nx">testInt</span> <span class="kt">int32</span> <span class="p">=</span> <span class="mh">0x01020304</span>
+</span></span><span class="line"><span class="cl">	<span class="nx">fmt</span><span class="p">.</span><span class="nf">Printf</span><span class="p">(</span><span class="s">&#34;%d use big endian: \n&#34;</span><span class="p">,</span> <span class="nx">testInt</span><span class="p">)</span>
+</span></span><span class="line"><span class="cl">	<span class="kd">var</span> <span class="nx">testBytes</span> <span class="p">[]</span><span class="kt">byte</span> <span class="p">=</span> <span class="nb">make</span><span class="p">([]</span><span class="kt">byte</span><span class="p">,</span> <span class="mi">4</span><span class="p">)</span>
+</span></span><span class="line"><span class="cl">	<span class="nx">binary</span><span class="p">.</span><span class="nx">BigEndian</span><span class="p">.</span><span class="nf">PutUint32</span><span class="p">(</span><span class="nx">testBytes</span><span class="p">,</span> <span class="nb">uint32</span><span class="p">(</span><span class="nx">testInt</span><span class="p">))</span>
+</span></span><span class="line"><span class="cl">	<span class="nx">fmt</span><span class="p">.</span><span class="nf">Println</span><span class="p">(</span><span class="s">&#34;int32 to bytes:&#34;</span><span class="p">,</span> <span class="nx">testBytes</span><span class="p">)</span>
+</span></span><span class="line"><span class="cl">	<span class="nx">fmt</span><span class="p">.</span><span class="nf">Printf</span><span class="p">(</span><span class="s">&#34;int32 to bytes: %x \n&#34;</span><span class="p">,</span> <span class="nx">testBytes</span><span class="p">)</span>
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl">	<span class="nx">convInt</span> <span class="o">:=</span> <span class="nx">binary</span><span class="p">.</span><span class="nx">BigEndian</span><span class="p">.</span><span class="nf">Uint32</span><span class="p">(</span><span class="nx">testBytes</span><span class="p">)</span>
+</span></span><span class="line"><span class="cl">	<span class="nx">fmt</span><span class="p">.</span><span class="nf">Printf</span><span class="p">(</span><span class="s">&#34;bytes to int32: %d\n\n&#34;</span><span class="p">,</span> <span class="nx">convInt</span><span class="p">)</span>
+</span></span><span class="line"><span class="cl"><span class="p">}</span>
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl"><span class="kd">func</span> <span class="nf">testLittleEndian</span><span class="p">()</span> <span class="p">{</span>
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl">	<span class="kd">var</span> <span class="nx">testInt</span> <span class="kt">int32</span> <span class="p">=</span> <span class="mh">0x01020304</span>
+</span></span><span class="line"><span class="cl">	<span class="nx">fmt</span><span class="p">.</span><span class="nf">Printf</span><span class="p">(</span><span class="s">&#34;%x use little endian: \n&#34;</span><span class="p">,</span> <span class="nx">testInt</span><span class="p">)</span>
+</span></span><span class="line"><span class="cl">	<span class="kd">var</span> <span class="nx">testBytes</span> <span class="p">[]</span><span class="kt">byte</span> <span class="p">=</span> <span class="nb">make</span><span class="p">([]</span><span class="kt">byte</span><span class="p">,</span> <span class="mi">4</span><span class="p">)</span>
+</span></span><span class="line"><span class="cl">	<span class="nx">binary</span><span class="p">.</span><span class="nx">LittleEndian</span><span class="p">.</span><span class="nf">PutUint32</span><span class="p">(</span><span class="nx">testBytes</span><span class="p">,</span> <span class="nb">uint32</span><span class="p">(</span><span class="nx">testInt</span><span class="p">))</span>
+</span></span><span class="line"><span class="cl">	<span class="nx">fmt</span><span class="p">.</span><span class="nf">Printf</span><span class="p">(</span><span class="s">&#34;int32 to bytes: %x \n&#34;</span><span class="p">,</span> <span class="nx">testBytes</span><span class="p">)</span>
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl">	<span class="nx">convInt</span> <span class="o">:=</span> <span class="nx">binary</span><span class="p">.</span><span class="nx">LittleEndian</span><span class="p">.</span><span class="nf">Uint32</span><span class="p">(</span><span class="nx">testBytes</span><span class="p">)</span>
+</span></span><span class="line"><span class="cl">	<span class="nx">fmt</span><span class="p">.</span><span class="nf">Printf</span><span class="p">(</span><span class="s">&#34;bytes to int32: %d\n\n&#34;</span><span class="p">,</span> <span class="nx">convInt</span><span class="p">)</span>
+</span></span><span class="line"><span class="cl"><span class="p">}</span>
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl"><span class="kd">func</span> <span class="nf">main</span><span class="p">()</span> <span class="p">{</span>
+</span></span><span class="line"><span class="cl">	<span class="nf">systemEdian</span><span class="p">()</span>
+</span></span><span class="line"><span class="cl">	<span class="nx">fmt</span><span class="p">.</span><span class="nf">Println</span><span class="p">(</span><span class="s">&#34;&#34;</span><span class="p">)</span>
+</span></span><span class="line"><span class="cl">	<span class="nf">testBigEndian</span><span class="p">()</span>
+</span></span><span class="line"><span class="cl">	<span class="nf">testLittleEndian</span><span class="p">()</span>
+</span></span><span class="line"><span class="cl"><span class="p">}</span>
+</span></span></code></pre></td></tr></table>
+</div>
+</div><p>输出：</p>
+<blockquote>
+<p>&amp;i: 0xc00000a0b8
+system edian is little endian
+temp: 0x4,0xc00000a0b8
+temp: 0x3,0xc00000a0b9
+temp: 0x2,0xc00000a0ba
+temp: 0x1,0xc00000a0bb</p>
+<p>16909060 use big endian:
+int32 to bytes: [1 2 3 4]
+int32 to bytes: 01020304
+bytes to int32: 16909060</p>
+<p>1020304 use little endian:
+int32 to bytes: 04030201
+bytes to int32: 16909060</p>
+</blockquote>
+<h2 id="五参考文章">五、参考文章</h2>
+<p><a href="http://www.ruanyifeng.com/blog/2016/11/byte-order.html" target="_blank" rel="noopener noreffer ">理解字节序</a></p>
+<p><a href="https://studygolang.com/articles/17887" target="_blank" rel="noopener noreffer ">golang之大端序、小端序</a></p>
+<p><a href="https://www.golang123.com/topic/1784" target="_blank" rel="noopener noreffer ">字节序及 Go encoding/binary 库</a></p>
+<p><a href="https://zh.wikipedia.org/wiki/%E5%AD%97%E8%8A%82%E5%BA%8F" target="_blank" rel="noopener noreffer ">字节顺序</a></p>
+]]></description>
+</item>
+</channel>
+</rss>

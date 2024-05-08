@@ -1,0 +1,30 @@
+<rss xmlns:atom="http://www.w3.org/2005/Atom" version="2.0">
+    <channel>
+        <title>Kindle - 标签 - Saul&#39;s blog</title>
+        <link>https://jordanzheng.github.io/tags/kindle/</link>
+        <description>Kindle - 标签 - Saul&#39;s blog</description>
+        <generator>Hugo -- gohugo.io</generator><language>zh-CN</language><managingEditor>saulhadis@gmail.com (saul)</managingEditor>
+            <webMaster>saulhadis@gmail.com (saul)</webMaster><copyright>This work is licensed under a Creative Commons Attribution-NonCommercial 4.0 International License.</copyright><lastBuildDate>Sat, 02 Sep 2017 16:19:55 &#43;0000</lastBuildDate><atom:link href="https://jordanzheng.github.io/tags/kindle/" rel="self" type="application/rss+xml" /><item>
+    <title>Kindle已连接WiFi网络，但无法连接互联网的解决办法</title>
+    <link>https://jordanzheng.github.io/kindle%E5%B7%B2%E8%BF%9E%E6%8E%A5wifi%E7%BD%91%E7%BB%9C%E6%97%A0%E6%B3%95%E8%BF%9E%E6%8E%A5%E4%BA%92%E8%81%94%E7%BD%91%E7%9A%84%E8%A7%A3%E5%86%B3%E5%8A%9E%E6%B3%95/</link>
+    <pubDate>Sat, 02 Sep 2017 16:19:55 &#43;0000</pubDate>
+    <author>saul</author>
+    <guid>https://jordanzheng.github.io/kindle%E5%B7%B2%E8%BF%9E%E6%8E%A5wifi%E7%BD%91%E7%BB%9C%E6%97%A0%E6%B3%95%E8%BF%9E%E6%8E%A5%E4%BA%92%E8%81%94%E7%BD%91%E7%9A%84%E8%A7%A3%E5%86%B3%E5%8A%9E%E6%B3%95/</guid>
+    <description><![CDATA[<hr>
+<p>今天打开kindle准备看《浪潮之巅》，发现没有自动同步我在手机上看的页数，一看是kindle没连上Wi-Fi，然后就主动去连接Wi-Fi。 但连接Wi-Fi后显示** Kindle已连接WiFi网络，但无法连接互联网的解决办法 **</p>
+<!-- more -->
+<p></p>
+<p>kindle前几天都还可以连网，现在突然突然不行了。不能联网的kindle就没法同步用手机kindle软件看书的进度、并且不能推送电子书了。</p>
+<p>看到这报错第一反应是，手机连上Wi-Fi了看能不能联网，后发现手机连上同样的Wi-Fi是可以上网的。感觉不像是家里网络的问题。</p>
+<p>想到第一种解决办法是重启kindle（据说重启能解决80%的计算机问题），然后并没什么卵用。</p>
+<p>后来上网搜了一下该问题，寻找解决办法。找到了一种可行的解决办法，特此记录一下。</p>
+<h3 id="解决办法">解决办法</h3>
+<blockquote>
+<p>1、在Kindle U盘根目录建立一个txt文件，名为“WIFI_NO_NET_PROBE”</p>
+<p>2、去掉txt后缀名</p>
+<p>3、然后重启，如此就能避开Kindle连网时的网络验证，可以很顺利地连上WiFi了</p>
+</blockquote>
+]]></description>
+</item>
+</channel>
+</rss>

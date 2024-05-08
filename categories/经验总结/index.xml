@@ -1,0 +1,1529 @@
+<rss xmlns:atom="http://www.w3.org/2005/Atom" version="2.0">
+    <channel>
+        <title>经验总结 - 分类 - Saul&#39;s blog</title>
+        <link>https://jordanzheng.github.io/categories/%E7%BB%8F%E9%AA%8C%E6%80%BB%E7%BB%93/</link>
+        <description>经验总结 - 分类 - Saul&#39;s blog</description>
+        <generator>Hugo -- gohugo.io</generator><language>zh-CN</language><managingEditor>saulhadis@gmail.com (saul)</managingEditor>
+            <webMaster>saulhadis@gmail.com (saul)</webMaster><copyright>This work is licensed under a Creative Commons Attribution-NonCommercial 4.0 International License.</copyright><lastBuildDate>Sat, 14 Sep 2019 21:49:00 &#43;0000</lastBuildDate><atom:link href="https://jordanzheng.github.io/categories/%E7%BB%8F%E9%AA%8C%E6%80%BB%E7%BB%93/" rel="self" type="application/rss+xml" /><item>
+    <title>mysql千万级数据分表迁移方案</title>
+    <link>https://jordanzheng.github.io/mysql-sharding/</link>
+    <pubDate>Sat, 14 Sep 2019 21:49:00 &#43;0000</pubDate>
+    <author>saul</author>
+    <guid>https://jordanzheng.github.io/mysql-sharding/</guid>
+    <description><![CDATA[<h1 id="前言">前言</h1>
+<p>最近抽空将前段时间负责重构服务迁移数据的项目总结一下。主要涉及mysql分表、数据迁移等方面。由于分库分表面对的场景很多，具体问题具体分析，还是要依据当时项目的实际情况，选择最合理的方案。</p>
+<!-- more -->
+<h1 id="一项目背景">一、项目背景</h1>
+<p>近来接手负责一个项目，需要重构业务的实名认证系统。当前该实名认证系统随着业务的增长以及红包活动复用实名认证表，用户实名认证表的数据迅速增长。基于下面几点原因，不得不重构系统，数据分表，迁移数据。</p>
+<p>1、由于历史原因，实名认证表是单表，数据量已经达到三千万左右。mysql单表数据量过千万上亿级别就会对服务造成很大的影响。</p>
+<ul>
+<li>数据库备份，如果单表太大，备份时需要大量的磁盘IO和网络IO</li>
+<li>后续很难对该表进行DDL修改</li>
+<li>大表会经常访问与更新，就更有可能出现锁等待。将数据切分，用空间换时间，变相降低访问压力）</li>
+</ul>
+<p>2、该表主键uid之前是32位，为后续可以扩展，升级为64位，同时新增更新时间字段。
+3、当前该服务以及外部服务直接操作数据库表。耦合严重。</p>
+<h1 id="二方案设计">二、方案设计</h1>
+<h2 id="1数据表怎么切分">1、数据表怎么切分</h2>
+<p>数据切分通常分为两种方式：<strong>垂直切分</strong>和<strong>水平切分</strong></p>
+<p>1、<strong>垂直切分</strong>就是根据业务耦合性，将关联度低的不同表存储在不同的数据库。做法与大系统拆分为多个小系统类似，按业务分类进行独立划分。与&quot;微服务治理&quot;的做法相似，每个微服务使用单独的一个数据库。</p>
+<p>2、<strong>水平切分</strong>就是将同一个表按不同的条件分散到多个数据库或多个表中，每个表中只包含一部分数据，从而使得单个表的数据量变小。</p>
+<p>常见的分片规则：</p>
+<p>1、按<strong>时间区间或者id区间</strong>来切分。例如：按日期将不同月甚至是日的数据分散到不同的库中；将userId为1~9999的记录分到第一个库，10000~20000的分到第二个库，以此类推。某种意义上，某些系统中使用的&quot;冷热数据分离&quot;，将一些使用较少的历史数据迁移到其他库中，业务功能上只提供热点数据的查询，也是类似的实践。</p>
+<p><strong>优点：</strong></p>
+<ul>
+<li>单表大小可控</li>
+<li>天然便于水平扩展，后期如果想对整个分片集群扩容时，只需要添加节点即可，无需对其他分片的数据进行迁移</li>
+<li>使用分片字段进行范围查找时，连续分片可快速定位分片进行快速查询，有效避免跨分片查询的问题。</li>
+</ul>
+<p><strong>缺点：</strong></p>
+<ul>
+<li>热点数据成为性能瓶颈。连续分片可能存在数据热点，例如按时间字段分片，有些分片存储最近时间段内的数据，可能会被频繁的读写，而有些分片存储的历史数据，则很少被查询</li>
+</ul>
+<p>2、<strong>根据数值取模</strong>。一般采用hash取模mod的切分方式</p>
+<p><strong>优点：</strong></p>
+<ul>
+<li>数据分片相对比较均匀，不容易出现热点和并发访问的瓶颈</li>
+</ul>
+<p><strong>缺点：</strong></p>
+<ul>
+<li>后期分片集群扩容时，需要迁移旧的数据（使用一致性hash[&ldquo;算法&rdquo;]能较好的避免这个问题）</li>
+<li>容易面临跨分片查询的复杂问题。</li>
+</ul>
+<p>因为实名认证表没有时间维度字段，主键uid同时也是用户唯一id，由账号系统生成。本次数据表切分最后采用<strong>按用户uid维度取模水平切分</strong>。考虑到后续业务的增长，按uid%100取模，切分成100张表，平均每张表的数量不到百万级别，可支持后续上亿的用户数据。</p>
+<p><strong>优点：</strong></p>
+<ul>
+<li>数据均匀分布在100张表中</li>
+<li>每张表的数据量不会太大</li>
+</ul>
+<p><strong>缺点：</strong></p>
+<ul>
+<li>一次性增加100张表</li>
+<li>没法反向关系查询，例如根据手机号查找对应的uid，这个通过在缓存中增加手机号—&gt;uid反向关系解决</li>
+</ul>
+<h2 id="2数据怎么迁移">2、数据怎么迁移</h2>
+<p>互联网很多“数据量较大，并发量较大，业务复杂度较高”的业务场景，例如在（1）底层表结构变更（2）分库个数变换（3）底层存储介质变换的众多需求下，需要进行数据迁移，如何“平滑迁移数据，迁移过程不停机，保证系统持续服务”。</p>
+<p>常见的几种数据迁移方案：</p>
+<h3 id="1-停机方案">1） 停机方案</h3>
+<p></p>
+<p>优点：停机方案是相对直观和简单的，但对服务的可用性有影响，许多游戏公司的服务器升级，游戏分区与合区，可能会采用类似的方案</p>
+<p>缺点：1、影响服务可用性；2、指定时间内升级 ；3、容错性低，一旦规定时间内升级失败，只能回滚。</p>
+<h3 id="2-平滑迁移--追日志法">2) 平滑迁移&ndash;追日志法</h3>
+<p>
+步骤一：服务进行升级，记录“对旧库上的数据修改”的日志，该日志只需记录关键信息
+步骤二：研发一个数据迁移工具，进行数据迁移
+步骤三：研发一个读取日志并迁移数据的小工具，要把步骤二迁移数据过程中产生的差异数据追平
+步骤四：在持续重放日志，追平数据的过程中，研发一个数据校验的小工具，将旧库和新库中的数据进行比对，直到数据完全一致。
+数据一直是99.9%的一致，不能完全一致，也是正常的，可以做一个秒级的旧库readonly，等日志重放程序完全追上数据后，再进行切库切流量。</p>
+<h3 id="3平滑迁移--双写法">3）平滑迁移&ndash;双写法</h3>
+<p></p>
+<p>步骤一：服务进行升级，对“对旧库上的数据修改”（这里的修改，为数据的insert, delete, update），在新库上进行相同的修改操作
+步骤二：研发一个数据迁移工具，进行数据迁移
+步骤三：在数据迁移完成之后，需要使用数据校验的小工具，将旧库和新库中的数据进行比对，完全一致则符合预期，如果出现步骤二中的极限不一致情况，则以旧库中的数据为准。
+步骤四：数据完全一致之后，将流量切到新库，完成平滑数据迁移。</p>
+<p></p>
+<p>（1）假设迁移过程中进行了一个双insert操作，旧库新库都插入了数据，数据一致性没有被破坏</p>
+<p>（2）假设迁移过程中进行了一个双delete操作，这又分为两种情况：</p>
+<p>​	（2.1）假设这delete的数据属于[min,now]范围，即已经完成迁移，则旧库新库都删除了数据，数据一致性没有被破坏。</p>
+<p>​       （2.2）假设这delete的数据属于[now,max]范围，即未完成迁移，则旧库中删除操作的affect rows为1，新库中删除操作的affect rows为0，但是数据迁移工具在后续数据迁移中，并不会将这条旧库中被删除的数据迁移到新库中，所以数据一致性仍没有被破坏</p>
+<p>（3）假设迁移过程中进行了一个双update操作，可以认为update操作是一个delete加一个insert操作的复合操作，所以数据仍然是一致的</p>
+<p>除非在一种非常非常非常极限的情况下：</p>
+<p>（1）date-migrate-tool<strong>刚好</strong>从旧库中将某一条数据X取出</p>
+<p>（2）在X插入到新库中之前，旧库与新库中<strong>刚好</strong>对X进行了双delete操作</p>
+<p>（3）date-migrate-tool再将X插入到新库中</p>
+<p>这样，会出现新库比旧库多出一条数据X。</p>
+<p>不管怎样，数据迁移完成之后，在数据迁移完成之后，需要使用数据校验的小工具，将旧库和新库中的数据进行比对，完全一致则符合预期，如果出现步骤二中的极限不一致情况，则以旧库中的数据为准。</p>
+<p>此次重构项目中数据分两步迁移完成，数据从老表迁移到新表中。  <strong>在数据校验一致之前，所有的数据均以老表中的数据为准</strong> 。
+因为认证信息表中无法以时间维度来迁移数据，只能通过主键uid导出老表中的数据，然后迁移到新表中。因为数据量接近3000万，所以采用mysql提供的LOAD DATA INFILE导入文件的形式导入数据，这样可大大缩短数据导入时间。LOAD DATA INFILE 语句以很高的速度从一个文本文件中读取行到一个表中。
+1、迁移存量数据
+为了保证不影响现网服务，读取老表的数据将从从库中读取。为了合理控制迁移数据的时长，并发的select老表的数据，在测试环境测试，迁移3000万的数据大概耗时1小时。</p>
+<p>2、迁移增量数据
+增量数据通过后面数据校验工具对比完成</p>
+<h2 id="3怎么保证数据一致性">3、怎么保证数据一致性</h2>
+<p>以 <strong>数据双写服务上线的时间</strong> 为分割点，分割点之前数据的一致性由数据迁移脚本来保证；分割点以后的数据一致性由新老表双写来保证；当然这些数据的一致性都会有检验机制。</p>
+<p>1、对于数据迁移脚本迁移的数据一致性校验：数据根据uid取模从老表中分别存到100个文本文件中，当数据导入到每张新表后，直接再拉取新表数据到文本中，然后分别校验100个新老文件的MD5值，若都相同，则存量数据一致性没问题。</p>
+<p>2、对于数据库双写保证数据一致性校验：在老表执行成功后才会旁路发hippo（公司内部的消息队列组件）操作新表，hippo消息队列做消息的可靠性保证，新表操作如果失败通过monitor上报告警、error日志记录来保证一致性，如果没有告警和error日志，则可以认为双写数据的一致性。</p>
+<p>3、数据校验工具校验一致性：当存量数据导入新库之后，这是就通过数据校验工具比对新老库数据的一致性。为了不影响现网服务，数据校验比对拉的是老表的从库。当所有数据多次都比对一致后，此时新老库的数据就完全一致。</p>
+<h2 id="4怎么保证不影响线上服务">4、怎么保证不影响线上服务</h2>
+<p>为了不影响实名认证系统及周边业务方的线上服务，此次重构系统分三次迭代上线：</p>
+<h3 id="1上线数据库新老表双写">1）上线数据库新老表双写</h3>
+<p>迭代一主要保证新老表数据双写。实名认证老服务在原来写老表操作的地方，旁路一份数据到消息队列中，由新服务消费这个消息队列的消息写入到新表，同时也缓存一份数据到ckv（公司的缓存组件），并且存储由于分表导致无法反向查询手机号-&gt;uid的反向关系。旁路消息，异步处理这样不影响到原来的业务流程。</p>
+<h3 id="2上线数据同步保证数据库新老表数据一致">2）上线数据同步，保证数据库新老表数据一致</h3>
+<p>迭代二主要是上线数据同步服务，将老表的存量数据迁移到新表中，并且通过数据校验服务比对新老表数据的一致性。这个过程中，实名认证和业务方仍然使用老表。</p>
+<h3 id="3上线切换使用新表ckv数据提供新的接口">3）上线切换使用新表、ckv数据，提供新的接口，</h3>
+<p>迭代三上线切换使用新表，读接口使用ckv缓存数据，写接口先更新数据库再更新缓存，同时也会旁路消息更新老表，老表作为备份。迭代三过程中排查业务方的影响，将分表项目知会到业务方，业务方配合修改自己的逻辑。原有直接访问数据库表的调用一律切换成接口调用。严格控制上线步骤，不影响现网服务。</p>
+<h2 id="5为什么选择这个方案">5、为什么选择这个方案</h2>
+<p>方案初期也考虑了几种方案：</p>
+<p>1、引入开源的数据库中间件如mycat、sharding-sphere等。但是引入第三方组件，增加系统复杂度，后续升级发布麻烦，mycat还需额外单独部署机器，增加运维成本。</p>
+<p>2、停服迁移数据方案。该方案要停机，这样会影响到用户使用。</p>
+<p>综上，最终选择不引入第三方组件，数据双写不停服的方案。</p>
+<h1 id="三参考文章">三、参考文章</h1>
+<p>1、<a href="https://www.w3cschool.cn/architectroad/architectroad-data-smooth-migration.html" target="_blank" rel="noopener noreffer ">100亿数据平滑数据迁移,不影响服务</a></p>
+<p>2、<a href="https://www.cnblogs.com/butterfly100/p/9034281.html" target="_blank" rel="noopener noreffer ">数据库分库分表思路</a></p>
+<p>3、<a href="https://hanchao.blog.csdn.net/article/details/87093352" target="_blank" rel="noopener noreffer ">记一次分库分表——改造策略总结</a></p>
+]]></description>
+</item>
+<item>
+    <title>mysql批量创建表</title>
+    <link>https://jordanzheng.github.io/batch-create-table-mysql/</link>
+    <pubDate>Sat, 17 Aug 2019 20:49:37 &#43;0000</pubDate>
+    <author>saul</author>
+    <guid>https://jordanzheng.github.io/batch-create-table-mysql/</guid>
+    <description><![CDATA[<p>互联网业务快速发展，经常遇到业务在设计表时只是单表，后面随着业务快速发展，单表数据量达到千万级别，甚至上亿级别。此时mysql单表性能下降，解决办法之一是分表。</p>
+<p>批量创建多张表结构一样的表，方法有很多，本文介绍两种，仅供参考：</p>
+<!-- more -->
+<h2 id="一存储过程创建多张表">一、存储过程创建多张表</h2>
+<h3 id="1创建一百张表-createtablesql">1、创建一百张表 createTable.sql</h3>
+<div class="highlight"><div class="chroma">
+<table class="lntable"><tr><td class="lntd">
+<pre tabindex="0" class="chroma"><code><span class="lnt"> 1
+</span><span class="lnt"> 2
+</span><span class="lnt"> 3
+</span><span class="lnt"> 4
+</span><span class="lnt"> 5
+</span><span class="lnt"> 6
+</span><span class="lnt"> 7
+</span><span class="lnt"> 8
+</span><span class="lnt"> 9
+</span><span class="lnt">10
+</span><span class="lnt">11
+</span><span class="lnt">12
+</span><span class="lnt">13
+</span><span class="lnt">14
+</span><span class="lnt">15
+</span><span class="lnt">16
+</span><span class="lnt">17
+</span><span class="lnt">18
+</span><span class="lnt">19
+</span><span class="lnt">20
+</span><span class="lnt">21
+</span><span class="lnt">22
+</span><span class="lnt">23
+</span><span class="lnt">24
+</span><span class="lnt">25
+</span><span class="lnt">26
+</span><span class="lnt">27
+</span><span class="lnt">28
+</span><span class="lnt">29
+</span><span class="lnt">30
+</span><span class="lnt">31
+</span><span class="lnt">32
+</span><span class="lnt">33
+</span><span class="lnt">34
+</span><span class="lnt">35
+</span><span class="lnt">36
+</span><span class="lnt">37
+</span><span class="lnt">38
+</span><span class="lnt">39
+</span><span class="lnt">40
+</span><span class="lnt">41
+</span><span class="lnt">42
+</span><span class="lnt">43
+</span><span class="lnt">44
+</span><span class="lnt">45
+</span><span class="lnt">46
+</span><span class="lnt">47
+</span><span class="lnt">48
+</span><span class="lnt">49
+</span><span class="lnt">50
+</span><span class="lnt">51
+</span><span class="lnt">52
+</span><span class="lnt">53
+</span></code></pre></td>
+<td class="lntd">
+<pre tabindex="0" class="chroma"><code class="language-mysql" data-lang="mysql"><span class="line"><span class="cl"><span class="c1">#创建数据库要先指定字符集，否则使用数据库的默认字符集
+</span></span></span><span class="line"><span class="cl"><span class="c1"></span><span class="k">CREATE</span><span class="w"> </span><span class="k">DATABASE</span><span class="w"> </span><span class="n">db_test</span><span class="w"> </span><span class="k">DEFAULT</span><span class="w"> </span><span class="k">CHARACTER</span><span class="w"> </span><span class="kt">SET</span><span class="w"> </span><span class="n">UTF8</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w"></span><span class="k">USE</span><span class="w"> </span><span class="n">db_test</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w"></span><span class="k">CALL</span><span class="w"> </span><span class="nf">create_table</span><span class="p">();</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w"></span><span class="c1">#-------------------以下是存储过程--------------
+</span></span></span><span class="line"><span class="cl"><span class="c1"></span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w"></span><span class="n">DELIMITER</span><span class="w"> </span><span class="err">$$</span><span class="w">  
+</span></span></span><span class="line"><span class="cl"><span class="w">  
+</span></span></span><span class="line"><span class="cl"><span class="w"></span><span class="k">CREATE</span><span class="w">  
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="k">PROCEDURE</span><span class="w"> </span><span class="o">`</span><span class="n">db_test</span><span class="o">`</span><span class="p">.</span><span class="o">`</span><span class="n">create_table</span><span class="o">`</span><span class="p">()</span><span class="w">  
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">BEGIN</span><span class="w">  
+</span></span></span><span class="line"><span class="cl"><span class="w">  
+</span></span></span><span class="line"><span class="cl"><span class="w">         </span><span class="k">DECLARE</span><span class="w"> </span><span class="n">i</span><span class="w"> </span><span class="kt">INT</span><span class="p">;</span><span class="w">  
+</span></span></span><span class="line"><span class="cl"><span class="w">         </span><span class="k">DECLARE</span><span class="w"> </span><span class="n">table_name</span><span class="w"> </span><span class="kt">VARCHAR</span><span class="p">(</span><span class="mi">30</span><span class="p">);</span><span class="w">   
+</span></span></span><span class="line"><span class="cl"><span class="w">         </span><span class="k">DECLARE</span><span class="w"> </span><span class="n">table_pre</span><span class="w"> </span><span class="kt">VARCHAR</span><span class="p">(</span><span class="mi">30</span><span class="p">);</span><span class="w">   
+</span></span></span><span class="line"><span class="cl"><span class="w">         </span><span class="k">DECLARE</span><span class="w"> </span><span class="n">sql_text</span><span class="w"> </span><span class="kt">VARCHAR</span><span class="p">(</span><span class="mi">3000</span><span class="p">);</span><span class="w">   
+</span></span></span><span class="line"><span class="cl"><span class="w">         </span><span class="kt">SET</span><span class="w"> </span><span class="n">i</span><span class="o">=</span><span class="mi">0</span><span class="p">;</span><span class="w">  
+</span></span></span><span class="line"><span class="cl"><span class="w">         </span><span class="kt">SET</span><span class="w"> </span><span class="n">table_name</span><span class="o">=</span><span class="s1">&#39;&#39;</span><span class="p">;</span><span class="w">  
+</span></span></span><span class="line"><span class="cl"><span class="w">         </span><span class="kt">SET</span><span class="w"> </span><span class="n">table_pre</span><span class="o">=</span><span class="s1">&#39;test_table_&#39;</span><span class="p">;</span><span class="w">  
+</span></span></span><span class="line"><span class="cl"><span class="w">         </span><span class="kt">SET</span><span class="w"> </span><span class="n">sql_text</span><span class="o">=</span><span class="s1">&#39;&#39;</span><span class="p">;</span><span class="w">  
+</span></span></span><span class="line"><span class="cl"><span class="w">         </span><span class="k">WHILE</span><span class="w"> </span><span class="n">i</span><span class="o">&lt;</span><span class="mi">100</span><span class="w"> </span><span class="n">DO</span><span class="w">   
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="kt">SET</span><span class="w"> </span><span class="n">table_name</span><span class="o">=</span><span class="nf">CONCAT</span><span class="p">(</span><span class="n">table_pre</span><span class="p">,</span><span class="n">i</span><span class="p">);</span><span class="w">   
+</span></span></span><span class="line"><span class="cl"><span class="w">              
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="kt">SET</span><span class="w"> </span><span class="n">sql_text</span><span class="o">=</span><span class="nf">CONCAT</span><span class="p">(</span><span class="s1">&#39;CREATE TABLE &#39;</span><span class="p">,</span><span class="w"> </span><span class="n">table_name</span><span class="p">,</span><span class="w"> </span><span class="s1">&#39; (
+</span></span></span><span class="line"><span class="cl"><span class="s1">                   `uid` BIGINT(11) unsigned NOT NULL COMMENT \&#39;</span><span class="err">统一</span><span class="n">ID</span><span class="err">\</span><span class="s1">&#39;,
+</span></span></span><span class="line"><span class="cl"><span class="s1">                   `name` varchar(32) COLLATE utf8_bin DEFAULT NULL COMMENT \&#39;</span><span class="err">姓名\</span><span class="s1">&#39;,
+</span></span></span><span class="line"><span class="cl"><span class="s1">                   `idcard` varchar(32) COLLATE utf8_bin DEFAULT NULL COMMENT \&#39;</span><span class="err">身份证\</span><span class="s1">&#39;,
+</span></span></span><span class="line"><span class="cl"><span class="s1">                   `idcard_url` varchar(256) COLLATE utf8_bin DEFAULT NULL COMMENT \&#39;</span><span class="err">身份证图片\</span><span class="s1">&#39;,
+</span></span></span><span class="line"><span class="cl"><span class="s1">                   `idcard_auth_status` int(4) unsigned DEFAULT 0 COMMENT \&#39;</span><span class="err">身份证认证状态\</span><span class="s1">&#39;,
+</span></span></span><span class="line"><span class="cl"><span class="s1">                   `idcard_auth_time` BIGINT(12) unsigned DEFAULT 0 COMMENT \&#39;</span><span class="err">身份证认证时间\</span><span class="s1">&#39;,
+</span></span></span><span class="line"><span class="cl"><span class="s1">                   `phone` varchar(32) COLLATE utf8_bin DEFAULT NULL COMMENT \&#39;</span><span class="err">手机号码\</span><span class="s1">&#39;,
+</span></span></span><span class="line"><span class="cl"><span class="s1">                   `phone_auth_status` int(4) unsigned DEFAULT 0 COMMENT \&#39;</span><span class="err">手机认证状态\</span><span class="s1">&#39;,
+</span></span></span><span class="line"><span class="cl"><span class="s1">                   `phone_auth_time` BIGINT(12) unsigned DEFAULT 0 COMMENT \&#39;</span><span class="err">手机认证时间\</span><span class="s1">&#39;,
+</span></span></span><span class="line"><span class="cl"><span class="s1">                   `update_time` BIGINT(12) unsigned DEFAULT 0 COMMENT \&#39;</span><span class="err">更新时间\</span><span class="s1">&#39;,
+</span></span></span><span class="line"><span class="cl"><span class="s1">                   PRIMARY KEY (`uid`),
+</span></span></span><span class="line"><span class="cl"><span class="s1">                   KEY `index_name` (`phone`(11)),
+</span></span></span><span class="line"><span class="cl"><span class="s1">                   KEY `index_idcard` (`idcard`(18)),
+</span></span></span><span class="line"><span class="cl"><span class="s1">                 ) ENGINE=InnoDB DEFAULT CHARSET=utf8 COLLATE=utf8_bin CHECKSUM=1 DELAY_KEY_WRITE=1 ROW_FORMAT=DYNAMIC&#39;</span><span class="w"> </span><span class="p">);</span><span class="w">  
+</span></span></span><span class="line"><span class="cl"><span class="w">                  
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="k">SELECT</span><span class="w"> </span><span class="n">sql_text</span><span class="p">;</span><span class="w">   
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="kt">SET</span><span class="w"> </span><span class="o">@</span><span class="n">sql_text</span><span class="o">=</span><span class="n">sql_text</span><span class="p">;</span><span class="w">  
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="n">PREPARE</span><span class="w"> </span><span class="n">stmt</span><span class="w"> </span><span class="k">FROM</span><span class="w"> </span><span class="o">@</span><span class="n">sql_text</span><span class="p">;</span><span class="w">  
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="n">EXECUTE</span><span class="w"> </span><span class="n">stmt</span><span class="p">;</span><span class="w">  
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="n">DEALLOCATE</span><span class="w"> </span><span class="n">PREPARE</span><span class="w"> </span><span class="n">stmt</span><span class="p">;</span><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="kt">SET</span><span class="w"> </span><span class="n">i</span><span class="o">=</span><span class="n">i</span><span class="o">+</span><span class="mi">1</span><span class="p">;</span><span class="w">  
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">END</span><span class="w"> </span><span class="k">WHILE</span><span class="p">;</span><span class="w">  
+</span></span></span><span class="line"><span class="cl"><span class="w">  
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">END</span><span class="err">$$</span><span class="w">  
+</span></span></span><span class="line"><span class="cl"><span class="w">            
+</span></span></span><span class="line"><span class="cl"><span class="w"></span><span class="n">DELIMITER</span><span class="w"> </span><span class="p">;</span><span class="w">
+</span></span></span></code></pre></td></tr></table>
+</div>
+</div><h3 id="2执行存储过程创建表">2、执行存储过程，创建表</h3>
+<div class="highlight"><div class="chroma">
+<table class="lntable"><tr><td class="lntd">
+<pre tabindex="0" class="chroma"><code><span class="lnt">1
+</span></code></pre></td>
+<td class="lntd">
+<pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl">登上mysql，执行createTable.sql即可
+</span></span></code></pre></td></tr></table>
+</div>
+</div><h2 id="二利用sql语句创建多张表">二、<strong>利用sql语句创建多张表</strong></h2>
+<div class="highlight"><div class="chroma">
+<table class="lntable"><tr><td class="lntd">
+<pre tabindex="0" class="chroma"><code><span class="lnt"> 1
+</span><span class="lnt"> 2
+</span><span class="lnt"> 3
+</span><span class="lnt"> 4
+</span><span class="lnt"> 5
+</span><span class="lnt"> 6
+</span><span class="lnt"> 7
+</span><span class="lnt"> 8
+</span><span class="lnt"> 9
+</span><span class="lnt">10
+</span><span class="lnt">11
+</span><span class="lnt">12
+</span><span class="lnt">13
+</span><span class="lnt">14
+</span><span class="lnt">15
+</span><span class="lnt">16
+</span><span class="lnt">17
+</span><span class="lnt">18
+</span><span class="lnt">19
+</span><span class="lnt">20
+</span><span class="lnt">21
+</span><span class="lnt">22
+</span><span class="lnt">23
+</span></code></pre></td>
+<td class="lntd">
+<pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl"><span class="cp">#!/bin/sh
+</span></span></span><span class="line"><span class="cl"><span class="cp"></span>
+</span></span><span class="line"><span class="cl"><span class="c1"># 数据表名定义</span>
+</span></span><span class="line"><span class="cl"><span class="nv">timestamp</span><span class="o">=</span><span class="sb">`</span>date -d <span class="s2">&#34;3 month ago&#34;</span> +%Y%m%d<span class="sb">`</span>
+</span></span><span class="line"><span class="cl"><span class="nv">tablename</span><span class="o">=</span><span class="s1">&#39;t_table_test_20191108&#39;</span>
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl"><span class="nv">sql</span><span class="o">=</span><span class="s2">&#34;CREATE TABLE </span><span class="nv">$tablename</span><span class="s2"> (
+</span></span></span><span class="line"><span class="cl"><span class="s2">        id BIGINT(20) UNSIGNED NOT NULL AUTO_INCREMENT COMMENT &#39;唯一id&#39;,
+</span></span></span><span class="line"><span class="cl"><span class="s2">        uid BIGINT(20) UNSIGNED NOT NULL DEFAULT &#39;0&#39; COMMENT &#39;uid&#39;,
+</span></span></span><span class="line"><span class="cl"><span class="s2">        msg_id VARCHAR(64) NOT NULL DEFAULT &#39;&#39; COMMENT &#39;消息id&#39;,
+</span></span></span><span class="line"><span class="cl"><span class="s2">        msg_ts BIGINT(20) NOT NULL DEFAULT &#39;0&#39; COMMENT &#39;发言时间戳&#39;,
+</span></span></span><span class="line"><span class="cl"><span class="s2">        sender_uid BIGINT(20) UNSIGNED NOT NULL DEFAULT &#39;0&#39; COMMENT &#39;发言者uid&#39;,
+</span></span></span><span class="line"><span class="cl"><span class="s2">        sender_nic VARCHAR(64) NOT NULL DEFAULT &#39;&#39; COMMENT &#39;发言者昵称&#39;,
+</span></span></span><span class="line"><span class="cl"><span class="s2">        text VARCHAR(2048) NOT NULL DEFAULT &#39;&#39; COMMENT &#39;发言内容&#39;,
+</span></span></span><span class="line"><span class="cl"><span class="s2">        update_time TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT &#39;更新时间&#39;,
+</span></span></span><span class="line"><span class="cl"><span class="s2">        PRIMARY KEY (id),
+</span></span></span><span class="line"><span class="cl"><span class="s2">        UNIQUE INDEX idx_msg_id (msg_id),
+</span></span></span><span class="line"><span class="cl"><span class="s2">        INDEX idx_anchor_uid_msg_ts (anchor_uid, msg_ts)
+</span></span></span><span class="line"><span class="cl"><span class="s2">)COLLATE=&#39;utf8mb4_general_ci&#39; ENGINE=InnoDB AUTO_INCREMENT=1000;&#34;</span>
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl">mysql -h 10.23.22.22 -udb_test -pdb_test -P2223 -Ddb_test --default-character-set<span class="o">=</span>utf8 -Ne <span class="s2">&#34;</span><span class="nv">$sql</span><span class="s2">&#34;</span>
+</span></span></code></pre></td></tr></table>
+</div>
+</div><p>如果字段名和mysql关键字重复，将字段名用**<code>**括起来，例如：</code>index`</p>
+<div class="highlight"><div class="chroma">
+<table class="lntable"><tr><td class="lntd">
+<pre tabindex="0" class="chroma"><code><span class="lnt"> 1
+</span><span class="lnt"> 2
+</span><span class="lnt"> 3
+</span><span class="lnt"> 4
+</span><span class="lnt"> 5
+</span><span class="lnt"> 6
+</span><span class="lnt"> 7
+</span><span class="lnt"> 8
+</span><span class="lnt"> 9
+</span><span class="lnt">10
+</span><span class="lnt">11
+</span><span class="lnt">12
+</span><span class="lnt">13
+</span><span class="lnt">14
+</span><span class="lnt">15
+</span><span class="lnt">16
+</span><span class="lnt">17
+</span><span class="lnt">18
+</span><span class="lnt">19
+</span><span class="lnt">20
+</span><span class="lnt">21
+</span><span class="lnt">22
+</span><span class="lnt">23
+</span></code></pre></td>
+<td class="lntd">
+<pre tabindex="0" class="chroma"><code class="language-shell" data-lang="shell"><span class="line"><span class="cl"><span class="cp">#!/bin/sh
+</span></span></span><span class="line"><span class="cl"><span class="cp"></span>
+</span></span><span class="line"><span class="cl"><span class="c1"># 数据表名定义</span>
+</span></span><span class="line"><span class="cl"><span class="nv">timestamp</span><span class="o">=</span><span class="sb">`</span>date -d <span class="s2">&#34;3 month ago&#34;</span> +%Y%m%d<span class="sb">`</span>
+</span></span><span class="line"><span class="cl"><span class="nv">tablename</span><span class="o">=</span><span class="s1">&#39;t_table_test_20191108&#39;</span>
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl"><span class="nv">sql</span><span class="o">=</span><span class="s2">&#34;CREATE TABLE </span><span class="nv">$tablename</span><span class="s2"> (
+</span></span></span><span class="line"><span class="cl"><span class="s2">        \`id \` BIGINT(20) UNSIGNED NOT NULL AUTO_INCREMENT COMMENT &#39;唯一id&#39;,
+</span></span></span><span class="line"><span class="cl"><span class="s2">        \`uid \` BIGINT(20) UNSIGNED NOT NULL DEFAULT &#39;0&#39; COMMENT &#39;uid&#39;,
+</span></span></span><span class="line"><span class="cl"><span class="s2">        \`msg_id\` VARCHAR(64) NOT NULL DEFAULT &#39;&#39; COMMENT &#39;消息id&#39;,
+</span></span></span><span class="line"><span class="cl"><span class="s2">        \`msg_ts\` BIGINT(20) NOT NULL DEFAULT &#39;0&#39; COMMENT &#39;发言时间戳&#39;,
+</span></span></span><span class="line"><span class="cl"><span class="s2">        \`sender_uid\` BIGINT(20) UNSIGNED NOT NULL DEFAULT &#39;0&#39; COMMENT &#39;发言者uid&#39;,
+</span></span></span><span class="line"><span class="cl"><span class="s2">        \`sender_nic\` VARCHAR(64) NOT NULL DEFAULT &#39;&#39; COMMENT &#39;发言者昵称&#39;,
+</span></span></span><span class="line"><span class="cl"><span class="s2">        \`text\` VARCHAR(2048) NOT NULL DEFAULT &#39;&#39; COMMENT &#39;发言内容&#39;,
+</span></span></span><span class="line"><span class="cl"><span class="s2">        \`update_time\` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT &#39;更新时间&#39;,
+</span></span></span><span class="line"><span class="cl"><span class="s2">        PRIMARY KEY (\`id\`),
+</span></span></span><span class="line"><span class="cl"><span class="s2">        UNIQUE INDEX idx_msg_id (\`msg_id\`),
+</span></span></span><span class="line"><span class="cl"><span class="s2">        INDEX idx_anchor_uid_msg_ts (\`anchor_uid\`, \`msg_ts\`)
+</span></span></span><span class="line"><span class="cl"><span class="s2">)COLLATE=&#39;utf8mb4_general_ci&#39; ENGINE=InnoDB AUTO_INCREMENT=1000;&#34;</span>
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl">mysql -h 10.23.22.22 -udb_test -pdb_test -P2223 -Ddb_test --default-character-set<span class="o">=</span>utf8 -Ne <span class="s2">&#34;</span><span class="nv">$sql</span><span class="s2">&#34;</span>
+</span></span></code></pre></td></tr></table>
+</div>
+</div>]]></description>
+</item>
+<item>
+    <title>字节序：大端和小端</title>
+    <link>https://jordanzheng.github.io/byte-order/</link>
+    <pubDate>Sun, 14 Jul 2019 20:49:37 &#43;0000</pubDate>
+    <author>saul</author>
+    <guid>https://jordanzheng.github.io/byte-order/</guid>
+    <description><![CDATA[<h2 id="一字节序">一、字节序</h2>
+<p><strong>字节序</strong>，也就是字节的顺序，指的是多字节的数据在内存中的存放顺序。</p>
+<blockquote>
+<p>在几乎所有的机器上，多字节对象都被存储为连续的字节序列。例如在<a href="https://zh.wikipedia.org/wiki/C%e8%af%ad%e8%a8%80" target="_blank" rel="noopener noreffer ">C语言</a>中，一个类型为<code>int</code>的变量<code>x</code>地址为<code>0x100</code>，那么其对应地址表达式<code>&amp;x</code>的值为<code>0x100</code>。且<code>x</code>的四个字节将被存储在<a href="https://zh.wikipedia.org/wiki/%e5%ad%98%e5%82%a8%e5%99%a8" target="_blank" rel="noopener noreffer ">存储器</a>的<code>0x100, 0x101, 0x102, 0x103</code>位置</p>
+</blockquote>
+<h2 id="二大端与小端">二、大端与小端</h2>
+<p>根据x在连续的4字节内存中存储的顺序，字节序分为<strong>大端序（Big Endian）</strong> 与 **小端序（Little Endian）**两类，数值<code>0x1234</code>使用两个字节储存：高位字节是<code>0x12</code>，低位字节是<code>0x34</code></p>
+<ul>
+<li>大端序：高位字节在前，低位字节在后，人类读写数值的方法</li>
+<li>小端序：低位字节在前，高位字节在后，通常x86架构以小端序存储数据</li>
+</ul>
+<!-- more -->
+<p>如图所示：</p>
+<p></p>
+<ul>
+<li>Big Endian 是指低地址端 存放 高位字节。</li>
+<li>Little Endian 是指低地址端 存放 低位字节</li>
+</ul>
+<h3 id="1为啥有大小端之分">1、为啥有大小端之分？</h3>
+<blockquote>
+<p>答案是，计算机电路先处理低位字节，效率比较高，因为计算都是从低位开始的。所以，计算机的内部处理都是小端字节序。在计算机内部，小端序被广泛应用于现代性 CPU 内部存储数据；而在其他场景譬如网络传输和文件存储使用大端序。</p>
+</blockquote>
+<blockquote>
+<p>使用小端序时不移动字节就能改变 number 占内存的大小而不需内存地址起始位。比如我想把四字节的 int32 类型的整型转变为八字节的 int64 整型，只需在小端序末端加零即可。</p>
+<div class="highlight"><div class="chroma">
+<table class="lntable"><tr><td class="lntd">
+<pre tabindex="0" class="chroma"><code><span class="lnt">1
+</span><span class="lnt">2
+</span></code></pre></td>
+<td class="lntd">
+<pre tabindex="0" class="chroma"><code class="language-go" data-lang="go"><span class="line"><span class="cl"><span class="mi">44</span> <span class="mi">33</span> <span class="mi">22</span> <span class="mi">11</span>
+</span></span><span class="line"><span class="cl"><span class="mi">44</span> <span class="mi">33</span> <span class="mi">22</span> <span class="mi">11</span> <span class="mo">00</span> <span class="mo">00</span> <span class="mo">00</span> <span class="mo">00</span>
+</span></span></code></pre></td></tr></table>
+</div>
+</div><p>上述扩展或缩小整型变量操作在编译器层面非常有用，但在网络协议层非也。</p>
+<p>在网络协议层操作二进制数字时约定使用大端序，大端序是网络字节传输采用的方式。因为大端序最高有效字节排在首位（低地址端存放高位字节），能够按照字典排序，所以我们能够比较二进制编码后数字的每个字节。</p>
+<div class="highlight"><div class="chroma">
+<table class="lntable"><tr><td class="lntd">
+<pre tabindex="0" class="chroma"><code><span class="lnt">1
+</span></code></pre></td>
+<td class="lntd">
+<pre tabindex="0" class="chroma"><code class="language-go" data-lang="go"><span class="line"><span class="cl"><span class="nx">fmt</span><span class="p">.</span><span class="nf">Println</span><span class="p">(</span><span class="nx">bytes</span><span class="p">.</span><span class="nf">Equal</span><span class="p">([]</span><span class="nb">byte</span><span class="p">(</span><span class="s">&#34;Go&#34;</span><span class="p">),</span> <span class="p">[]</span><span class="nb">byte</span><span class="p">(</span><span class="s">&#34;Go&#34;</span><span class="p">)))</span>  <span class="c1">// true
+</span></span></span></code></pre></td></tr></table>
+</div>
+</div></blockquote>
+<h3 id="2为什么要注意字节序">2、为什么要注意字节序?</h3>
+<p>当程序要与别的程序交互的时候，就涉及到字节序的处理。字节序的处理原则就是</p>
+<p><strong>&ldquo;只有读取的时候，才必须区分字节序，其他情况都不用考虑。&rdquo;</strong></p>
+<p>处理器读取外部数据的时候，必须知道数据的字节序，将其转成正确的值。然后，就正常使用这个值，完全不用再考虑字节序。</p>
+<p>即使是向外部设备写入数据，也不用考虑字节序，正常写入一个值即可。外部设备会自己处理字节序的问题。</p>
+<h2 id="三网络序和主机序">三、网络序和主机序</h2>
+<p><strong>网络字节序</strong>：TCP/IP各层协议将字节序定义为 Big Endian，因此TCP/IP协议中使用的字节序是大端序。</p>
+<p><strong>主机字节序</strong>：整数在内存中存储的顺序，现在 Little Endian 比较普遍。（不同的 CPU 有不同的字节序）</p>
+<blockquote>
+<p>在进行网络通信时 通常需要调用相应的函数进行主机序和网络序的转换。Berkeley socket API 定义了一组转换函数，用于16和32bit整数在网络序和本机字节序之间的转换。htonl，htons用于本机序转换到网络序；ntohl，ntohs用于网络序转换到本机序。</p>
+</blockquote>
+<h2 id="四各语言关于字节序的处理">四、各语言关于字节序的处理</h2>
+<h2 id="1java">1、Java</h2>
+<p>JAVA字节序默认是<strong>大端序（Big Endian）</strong>。由于JVM会根据底层的操作系统和CPU自动进行字节序的转换，所以我们使用java进行网络编程，几乎感觉不到字节序的存在。</p>
+<div class="highlight"><div class="chroma">
+<table class="lntable"><tr><td class="lntd">
+<pre tabindex="0" class="chroma"><code><span class="lnt"> 1
+</span><span class="lnt"> 2
+</span><span class="lnt"> 3
+</span><span class="lnt"> 4
+</span><span class="lnt"> 5
+</span><span class="lnt"> 6
+</span><span class="lnt"> 7
+</span><span class="lnt"> 8
+</span><span class="lnt"> 9
+</span><span class="lnt">10
+</span><span class="lnt">11
+</span><span class="lnt">12
+</span><span class="lnt">13
+</span><span class="lnt">14
+</span><span class="lnt">15
+</span><span class="lnt">16
+</span><span class="lnt">17
+</span><span class="lnt">18
+</span><span class="lnt">19
+</span><span class="lnt">20
+</span><span class="lnt">21
+</span><span class="lnt">22
+</span><span class="lnt">23
+</span></code></pre></td>
+<td class="lntd">
+<pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="kn">import</span><span class="w"> </span><span class="nn">java.nio.ByteBuffer</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w"></span><span class="kn">import</span><span class="w"> </span><span class="nn">java.nio.ByteOrder</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w"></span><span class="kn">import</span><span class="w"> </span><span class="nn">java.util.Arrays</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w"> 
+</span></span></span><span class="line"><span class="cl"><span class="w"></span><span class="kd">public</span><span class="w"> </span><span class="kd">class</span> <span class="nc">JVMEndianTest</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">	
+</span></span></span><span class="line"><span class="cl"><span class="w">	</span><span class="kd">public</span><span class="w"> </span><span class="kd">static</span><span class="w"> </span><span class="kt">void</span><span class="w"> </span><span class="nf">main</span><span class="p">(</span><span class="n">String</span><span class="o">[]</span><span class="w"> </span><span class="n">args</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">		
+</span></span></span><span class="line"><span class="cl"><span class="w">		</span><span class="kt">int</span><span class="w"> </span><span class="n">x</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">0x01020304</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">		
+</span></span></span><span class="line"><span class="cl"><span class="w">		</span><span class="n">ByteBuffer</span><span class="w"> </span><span class="n">bb</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">ByteBuffer</span><span class="p">.</span><span class="na">wrap</span><span class="p">(</span><span class="k">new</span><span class="w"> </span><span class="kt">byte</span><span class="o">[</span><span class="n">4</span><span class="o">]</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">		</span><span class="n">bb</span><span class="p">.</span><span class="na">asIntBuffer</span><span class="p">().</span><span class="na">put</span><span class="p">(</span><span class="n">x</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">		</span><span class="n">String</span><span class="w"> </span><span class="n">ss_before</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">Arrays</span><span class="p">.</span><span class="na">toString</span><span class="p">(</span><span class="n">bb</span><span class="p">.</span><span class="na">array</span><span class="p">());</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">		
+</span></span></span><span class="line"><span class="cl"><span class="w">		</span><span class="n">System</span><span class="p">.</span><span class="na">out</span><span class="p">.</span><span class="na">println</span><span class="p">(</span><span class="s">&#34;默认字节序 &#34;</span><span class="w"> </span><span class="o">+</span><span class="w">  </span><span class="n">bb</span><span class="p">.</span><span class="na">order</span><span class="p">().</span><span class="na">toString</span><span class="p">()</span><span class="w"> </span><span class="o">+</span><span class="w">  </span><span class="s">&#34;,&#34;</span><span class="w">  </span><span class="o">+</span><span class="w">  </span><span class="s">&#34; 内存数据 &#34;</span><span class="w"> </span><span class="o">+</span><span class="w">  </span><span class="n">ss_before</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">		
+</span></span></span><span class="line"><span class="cl"><span class="w">		</span><span class="n">bb</span><span class="p">.</span><span class="na">order</span><span class="p">(</span><span class="n">ByteOrder</span><span class="p">.</span><span class="na">LITTLE_ENDIAN</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">		</span><span class="n">bb</span><span class="p">.</span><span class="na">asIntBuffer</span><span class="p">().</span><span class="na">put</span><span class="p">(</span><span class="n">x</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">		</span><span class="n">String</span><span class="w"> </span><span class="n">ss_after</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">Arrays</span><span class="p">.</span><span class="na">toString</span><span class="p">(</span><span class="n">bb</span><span class="p">.</span><span class="na">array</span><span class="p">());</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">		
+</span></span></span><span class="line"><span class="cl"><span class="w">		</span><span class="n">System</span><span class="p">.</span><span class="na">out</span><span class="p">.</span><span class="na">println</span><span class="p">(</span><span class="s">&#34;修改字节序 &#34;</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="n">bb</span><span class="p">.</span><span class="na">order</span><span class="p">().</span><span class="na">toString</span><span class="p">()</span><span class="w"> </span><span class="o">+</span><span class="w">  </span><span class="s">&#34;,&#34;</span><span class="w">  </span><span class="o">+</span><span class="w">  </span><span class="s">&#34; 内存数据 &#34;</span><span class="w"> </span><span class="o">+</span><span class="w">  </span><span class="n">ss_after</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">	</span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w"></span><span class="p">}</span><span class="w">
+</span></span></span></code></pre></td></tr></table>
+</div>
+</div><h2 id="2c">2、C++</h2>
+<p>C/C++ 存储数据时的字节序依赖所在平台的CPU，所以可以通过C/C++程序判定机器的端序：</p>
+<div class="highlight"><div class="chroma">
+<table class="lntable"><tr><td class="lntd">
+<pre tabindex="0" class="chroma"><code><span class="lnt">1
+</span><span class="lnt">2
+</span><span class="lnt">3
+</span><span class="lnt">4
+</span><span class="lnt">5
+</span><span class="lnt">6
+</span><span class="lnt">7
+</span><span class="lnt">8
+</span></code></pre></td>
+<td class="lntd">
+<pre tabindex="0" class="chroma"><code class="language-c++" data-lang="c++"><span class="line"><span class="cl"><span class="kt">void</span> <span class="nf">Endianness</span><span class="p">()</span>
+</span></span><span class="line"><span class="cl"><span class="p">{</span>
+</span></span><span class="line"><span class="cl">	<span class="kt">int</span> <span class="n">a</span> <span class="o">=</span> <span class="mh">0x12345678</span><span class="p">;</span>
+</span></span><span class="line"><span class="cl">	<span class="k">if</span><span class="p">(</span> <span class="o">*</span><span class="p">((</span><span class="kt">char</span><span class="o">*</span><span class="p">)</span><span class="o">&amp;</span><span class="n">a</span><span class="p">)</span> <span class="o">==</span> <span class="mh">0x12</span><span class="p">)</span>
+</span></span><span class="line"><span class="cl">		<span class="n">cout</span> <span class="o">&lt;&lt;</span> <span class="s">&#34;Big Endian&#34;</span> <span class="o">&lt;&lt;</span> <span class="n">endl</span><span class="p">;</span>
+</span></span><span class="line"><span class="cl">	<span class="k">else</span>
+</span></span><span class="line"><span class="cl">		<span class="n">cout</span> <span class="o">&lt;&lt;</span> <span class="s">&#34;Little Endian&#34;</span> <span class="o">&lt;&lt;</span> <span class="n">endl</span><span class="p">;</span>
+</span></span><span class="line"><span class="cl"><span class="p">}</span>
+</span></span></code></pre></td></tr></table>
+</div>
+</div><h2 id="3go">3、go</h2>
+<p>Go中处理大小端序的代码位于 <code>encoding/binary</code> ,包中的全局变量BigEndian用于操作大端序数据，LittleEndian用于操作小端序数据，这两个变量所对应的数据类型都实行了ByteOrder接口。</p>
+<div class="highlight"><div class="chroma">
+<table class="lntable"><tr><td class="lntd">
+<pre tabindex="0" class="chroma"><code><span class="lnt"> 1
+</span><span class="lnt"> 2
+</span><span class="lnt"> 3
+</span><span class="lnt"> 4
+</span><span class="lnt"> 5
+</span><span class="lnt"> 6
+</span><span class="lnt"> 7
+</span><span class="lnt"> 8
+</span><span class="lnt"> 9
+</span><span class="lnt">10
+</span><span class="lnt">11
+</span><span class="lnt">12
+</span><span class="lnt">13
+</span><span class="lnt">14
+</span><span class="lnt">15
+</span><span class="lnt">16
+</span><span class="lnt">17
+</span><span class="lnt">18
+</span><span class="lnt">19
+</span><span class="lnt">20
+</span><span class="lnt">21
+</span><span class="lnt">22
+</span><span class="lnt">23
+</span><span class="lnt">24
+</span><span class="lnt">25
+</span><span class="lnt">26
+</span><span class="lnt">27
+</span><span class="lnt">28
+</span><span class="lnt">29
+</span><span class="lnt">30
+</span><span class="lnt">31
+</span><span class="lnt">32
+</span><span class="lnt">33
+</span><span class="lnt">34
+</span><span class="lnt">35
+</span><span class="lnt">36
+</span><span class="lnt">37
+</span><span class="lnt">38
+</span><span class="lnt">39
+</span><span class="lnt">40
+</span><span class="lnt">41
+</span><span class="lnt">42
+</span><span class="lnt">43
+</span><span class="lnt">44
+</span><span class="lnt">45
+</span><span class="lnt">46
+</span><span class="lnt">47
+</span><span class="lnt">48
+</span><span class="lnt">49
+</span><span class="lnt">50
+</span><span class="lnt">51
+</span><span class="lnt">52
+</span><span class="lnt">53
+</span><span class="lnt">54
+</span><span class="lnt">55
+</span><span class="lnt">56
+</span><span class="lnt">57
+</span><span class="lnt">58
+</span><span class="lnt">59
+</span><span class="lnt">60
+</span><span class="lnt">61
+</span></code></pre></td>
+<td class="lntd">
+<pre tabindex="0" class="chroma"><code class="language-go" data-lang="go"><span class="line"><span class="cl"><span class="kn">package</span> <span class="nx">main</span>
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl"><span class="kn">import</span> <span class="p">(</span>
+</span></span><span class="line"><span class="cl">	<span class="s">&#34;encoding/binary&#34;</span>
+</span></span><span class="line"><span class="cl">	<span class="s">&#34;fmt&#34;</span>
+</span></span><span class="line"><span class="cl">	<span class="s">&#34;unsafe&#34;</span>
+</span></span><span class="line"><span class="cl"><span class="p">)</span>
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl"><span class="kd">const</span> <span class="nx">INT_SIZE</span> <span class="p">=</span> <span class="nb">int</span><span class="p">(</span><span class="nx">unsafe</span><span class="p">.</span><span class="nf">Sizeof</span><span class="p">(</span><span class="mi">0</span><span class="p">))</span> <span class="c1">//64位操作系统，8 bytes
+</span></span></span><span class="line"><span class="cl"><span class="c1"></span>
+</span></span><span class="line"><span class="cl"><span class="c1">//判断我们系统中的字节序类型
+</span></span></span><span class="line"><span class="cl"><span class="c1"></span><span class="kd">func</span> <span class="nf">systemEdian</span><span class="p">()</span> <span class="p">{</span>
+</span></span><span class="line"><span class="cl">    
+</span></span><span class="line"><span class="cl">	<span class="kd">var</span> <span class="nx">i</span> <span class="p">=</span> <span class="mh">0x01020304</span>
+</span></span><span class="line"><span class="cl">	<span class="nx">fmt</span><span class="p">.</span><span class="nf">Println</span><span class="p">(</span><span class="s">&#34;&amp;i:&#34;</span><span class="p">,</span><span class="o">&amp;</span><span class="nx">i</span><span class="p">)</span>
+</span></span><span class="line"><span class="cl">	<span class="nx">bs</span> <span class="o">:=</span> <span class="p">(</span><span class="o">*</span><span class="p">[</span><span class="nx">INT_SIZE</span><span class="p">]</span><span class="kt">byte</span><span class="p">)(</span><span class="nx">unsafe</span><span class="p">.</span><span class="nf">Pointer</span><span class="p">(</span><span class="o">&amp;</span><span class="nx">i</span><span class="p">))</span>
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl">	<span class="k">if</span> <span class="nx">bs</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">==</span> <span class="mh">0x04</span> <span class="p">{</span>
+</span></span><span class="line"><span class="cl">		<span class="nx">fmt</span><span class="p">.</span><span class="nf">Println</span><span class="p">(</span><span class="s">&#34;system edian is little endian&#34;</span><span class="p">)</span>
+</span></span><span class="line"><span class="cl">	<span class="p">}</span> <span class="k">else</span> <span class="p">{</span>
+</span></span><span class="line"><span class="cl">		<span class="nx">fmt</span><span class="p">.</span><span class="nf">Println</span><span class="p">(</span><span class="s">&#34;system edian is big endian&#34;</span><span class="p">)</span>
+</span></span><span class="line"><span class="cl">	<span class="p">}</span>
+</span></span><span class="line"><span class="cl">	<span class="nx">fmt</span><span class="p">.</span><span class="nf">Printf</span><span class="p">(</span><span class="s">&#34;temp: 0x%x,%v\n&#34;</span><span class="p">,</span><span class="nx">bs</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span><span class="o">&amp;</span><span class="nx">bs</span><span class="p">[</span><span class="mi">0</span><span class="p">])</span>
+</span></span><span class="line"><span class="cl">	<span class="nx">fmt</span><span class="p">.</span><span class="nf">Printf</span><span class="p">(</span><span class="s">&#34;temp: 0x%x,%v\n&#34;</span><span class="p">,</span><span class="nx">bs</span><span class="p">[</span><span class="mi">1</span><span class="p">],</span><span class="o">&amp;</span><span class="nx">bs</span><span class="p">[</span><span class="mi">1</span><span class="p">])</span>
+</span></span><span class="line"><span class="cl">	<span class="nx">fmt</span><span class="p">.</span><span class="nf">Printf</span><span class="p">(</span><span class="s">&#34;temp: 0x%x,%v\n&#34;</span><span class="p">,</span><span class="nx">bs</span><span class="p">[</span><span class="mi">2</span><span class="p">],</span><span class="o">&amp;</span><span class="nx">bs</span><span class="p">[</span><span class="mi">2</span><span class="p">])</span>
+</span></span><span class="line"><span class="cl">	<span class="nx">fmt</span><span class="p">.</span><span class="nf">Printf</span><span class="p">(</span><span class="s">&#34;temp: 0x%x,%v\n&#34;</span><span class="p">,</span><span class="nx">bs</span><span class="p">[</span><span class="mi">3</span><span class="p">],</span><span class="o">&amp;</span><span class="nx">bs</span><span class="p">[</span><span class="mi">3</span><span class="p">])</span>
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl"><span class="p">}</span>
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl"><span class="kd">func</span> <span class="nf">testBigEndian</span><span class="p">()</span> <span class="p">{</span>
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl">	<span class="kd">var</span> <span class="nx">testInt</span> <span class="kt">int32</span> <span class="p">=</span> <span class="mh">0x01020304</span>
+</span></span><span class="line"><span class="cl">	<span class="nx">fmt</span><span class="p">.</span><span class="nf">Printf</span><span class="p">(</span><span class="s">&#34;%d use big endian: \n&#34;</span><span class="p">,</span> <span class="nx">testInt</span><span class="p">)</span>
+</span></span><span class="line"><span class="cl">	<span class="kd">var</span> <span class="nx">testBytes</span> <span class="p">[]</span><span class="kt">byte</span> <span class="p">=</span> <span class="nb">make</span><span class="p">([]</span><span class="kt">byte</span><span class="p">,</span> <span class="mi">4</span><span class="p">)</span>
+</span></span><span class="line"><span class="cl">	<span class="nx">binary</span><span class="p">.</span><span class="nx">BigEndian</span><span class="p">.</span><span class="nf">PutUint32</span><span class="p">(</span><span class="nx">testBytes</span><span class="p">,</span> <span class="nb">uint32</span><span class="p">(</span><span class="nx">testInt</span><span class="p">))</span>
+</span></span><span class="line"><span class="cl">	<span class="nx">fmt</span><span class="p">.</span><span class="nf">Println</span><span class="p">(</span><span class="s">&#34;int32 to bytes:&#34;</span><span class="p">,</span> <span class="nx">testBytes</span><span class="p">)</span>
+</span></span><span class="line"><span class="cl">	<span class="nx">fmt</span><span class="p">.</span><span class="nf">Printf</span><span class="p">(</span><span class="s">&#34;int32 to bytes: %x \n&#34;</span><span class="p">,</span> <span class="nx">testBytes</span><span class="p">)</span>
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl">	<span class="nx">convInt</span> <span class="o">:=</span> <span class="nx">binary</span><span class="p">.</span><span class="nx">BigEndian</span><span class="p">.</span><span class="nf">Uint32</span><span class="p">(</span><span class="nx">testBytes</span><span class="p">)</span>
+</span></span><span class="line"><span class="cl">	<span class="nx">fmt</span><span class="p">.</span><span class="nf">Printf</span><span class="p">(</span><span class="s">&#34;bytes to int32: %d\n\n&#34;</span><span class="p">,</span> <span class="nx">convInt</span><span class="p">)</span>
+</span></span><span class="line"><span class="cl"><span class="p">}</span>
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl"><span class="kd">func</span> <span class="nf">testLittleEndian</span><span class="p">()</span> <span class="p">{</span>
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl">	<span class="kd">var</span> <span class="nx">testInt</span> <span class="kt">int32</span> <span class="p">=</span> <span class="mh">0x01020304</span>
+</span></span><span class="line"><span class="cl">	<span class="nx">fmt</span><span class="p">.</span><span class="nf">Printf</span><span class="p">(</span><span class="s">&#34;%x use little endian: \n&#34;</span><span class="p">,</span> <span class="nx">testInt</span><span class="p">)</span>
+</span></span><span class="line"><span class="cl">	<span class="kd">var</span> <span class="nx">testBytes</span> <span class="p">[]</span><span class="kt">byte</span> <span class="p">=</span> <span class="nb">make</span><span class="p">([]</span><span class="kt">byte</span><span class="p">,</span> <span class="mi">4</span><span class="p">)</span>
+</span></span><span class="line"><span class="cl">	<span class="nx">binary</span><span class="p">.</span><span class="nx">LittleEndian</span><span class="p">.</span><span class="nf">PutUint32</span><span class="p">(</span><span class="nx">testBytes</span><span class="p">,</span> <span class="nb">uint32</span><span class="p">(</span><span class="nx">testInt</span><span class="p">))</span>
+</span></span><span class="line"><span class="cl">	<span class="nx">fmt</span><span class="p">.</span><span class="nf">Printf</span><span class="p">(</span><span class="s">&#34;int32 to bytes: %x \n&#34;</span><span class="p">,</span> <span class="nx">testBytes</span><span class="p">)</span>
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl">	<span class="nx">convInt</span> <span class="o">:=</span> <span class="nx">binary</span><span class="p">.</span><span class="nx">LittleEndian</span><span class="p">.</span><span class="nf">Uint32</span><span class="p">(</span><span class="nx">testBytes</span><span class="p">)</span>
+</span></span><span class="line"><span class="cl">	<span class="nx">fmt</span><span class="p">.</span><span class="nf">Printf</span><span class="p">(</span><span class="s">&#34;bytes to int32: %d\n\n&#34;</span><span class="p">,</span> <span class="nx">convInt</span><span class="p">)</span>
+</span></span><span class="line"><span class="cl"><span class="p">}</span>
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl"><span class="kd">func</span> <span class="nf">main</span><span class="p">()</span> <span class="p">{</span>
+</span></span><span class="line"><span class="cl">	<span class="nf">systemEdian</span><span class="p">()</span>
+</span></span><span class="line"><span class="cl">	<span class="nx">fmt</span><span class="p">.</span><span class="nf">Println</span><span class="p">(</span><span class="s">&#34;&#34;</span><span class="p">)</span>
+</span></span><span class="line"><span class="cl">	<span class="nf">testBigEndian</span><span class="p">()</span>
+</span></span><span class="line"><span class="cl">	<span class="nf">testLittleEndian</span><span class="p">()</span>
+</span></span><span class="line"><span class="cl"><span class="p">}</span>
+</span></span></code></pre></td></tr></table>
+</div>
+</div><p>输出：</p>
+<blockquote>
+<p>&amp;i: 0xc00000a0b8
+system edian is little endian
+temp: 0x4,0xc00000a0b8
+temp: 0x3,0xc00000a0b9
+temp: 0x2,0xc00000a0ba
+temp: 0x1,0xc00000a0bb</p>
+<p>16909060 use big endian:
+int32 to bytes: [1 2 3 4]
+int32 to bytes: 01020304
+bytes to int32: 16909060</p>
+<p>1020304 use little endian:
+int32 to bytes: 04030201
+bytes to int32: 16909060</p>
+</blockquote>
+<h2 id="五参考文章">五、参考文章</h2>
+<p><a href="http://www.ruanyifeng.com/blog/2016/11/byte-order.html" target="_blank" rel="noopener noreffer ">理解字节序</a></p>
+<p><a href="https://studygolang.com/articles/17887" target="_blank" rel="noopener noreffer ">golang之大端序、小端序</a></p>
+<p><a href="https://www.golang123.com/topic/1784" target="_blank" rel="noopener noreffer ">字节序及 Go encoding/binary 库</a></p>
+<p><a href="https://zh.wikipedia.org/wiki/%E5%AD%97%E8%8A%82%E5%BA%8F" target="_blank" rel="noopener noreffer ">字节顺序</a></p>
+]]></description>
+</item>
+<item>
+    <title>go语言解析map[string]interface{}的注意事项</title>
+    <link>https://jordanzheng.github.io/parsing-mapstringinterface-data-format-for-go/</link>
+    <pubDate>Tue, 14 May 2019 20:48:01 &#43;0000</pubDate>
+    <author>saul</author>
+    <guid>https://jordanzheng.github.io/parsing-mapstringinterface-data-format-for-go/</guid>
+    <description><![CDATA[<p>go语言解析 map[string]interface{} 数据格式的注意事项：</p>
+<ul>
+<li>map记得分配内存</li>
+<li>解析出来的<strong>int类型会变成float64类型</strong></li>
+<li>注意判断不为nil后再转换类型</li>
+</ul>
+<!-- more -->
+<p>示例代码：</p>
+<div class="highlight"><div class="chroma">
+<table class="lntable"><tr><td class="lntd">
+<pre tabindex="0" class="chroma"><code><span class="lnt"> 1
+</span><span class="lnt"> 2
+</span><span class="lnt"> 3
+</span><span class="lnt"> 4
+</span><span class="lnt"> 5
+</span><span class="lnt"> 6
+</span><span class="lnt"> 7
+</span><span class="lnt"> 8
+</span><span class="lnt"> 9
+</span><span class="lnt">10
+</span><span class="lnt">11
+</span><span class="lnt">12
+</span><span class="lnt">13
+</span><span class="lnt">14
+</span><span class="lnt">15
+</span><span class="lnt">16
+</span><span class="lnt">17
+</span><span class="lnt">18
+</span><span class="lnt">19
+</span><span class="lnt">20
+</span><span class="lnt">21
+</span><span class="lnt">22
+</span><span class="lnt">23
+</span><span class="lnt">24
+</span><span class="lnt">25
+</span><span class="lnt">26
+</span><span class="lnt">27
+</span><span class="lnt">28
+</span><span class="lnt">29
+</span><span class="lnt">30
+</span><span class="lnt">31
+</span><span class="lnt">32
+</span><span class="lnt">33
+</span><span class="lnt">34
+</span><span class="lnt">35
+</span><span class="lnt">36
+</span><span class="lnt">37
+</span><span class="lnt">38
+</span><span class="lnt">39
+</span><span class="lnt">40
+</span><span class="lnt">41
+</span><span class="lnt">42
+</span><span class="lnt">43
+</span><span class="lnt">44
+</span><span class="lnt">45
+</span><span class="lnt">46
+</span><span class="lnt">47
+</span><span class="lnt">48
+</span><span class="lnt">49
+</span><span class="lnt">50
+</span><span class="lnt">51
+</span><span class="lnt">52
+</span><span class="lnt">53
+</span><span class="lnt">54
+</span><span class="lnt">55
+</span><span class="lnt">56
+</span><span class="lnt">57
+</span><span class="lnt">58
+</span><span class="lnt">59
+</span><span class="lnt">60
+</span><span class="lnt">61
+</span><span class="lnt">62
+</span><span class="lnt">63
+</span><span class="lnt">64
+</span><span class="lnt">65
+</span><span class="lnt">66
+</span><span class="lnt">67
+</span><span class="lnt">68
+</span></code></pre></td>
+<td class="lntd">
+<pre tabindex="0" class="chroma"><code class="language-go" data-lang="go"><span class="line"><span class="cl"><span class="kn">package</span> <span class="nx">main</span>
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl"><span class="kn">import</span> <span class="p">(</span>
+</span></span><span class="line"><span class="cl">    <span class="s">&#34;fmt&#34;</span>
+</span></span><span class="line"><span class="cl">    <span class="s">&#34;encoding/json&#34;</span>
+</span></span><span class="line"><span class="cl"><span class="p">)</span>
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl"><span class="kd">func</span> <span class="nf">main</span><span class="p">()</span> <span class="p">{</span>
+</span></span><span class="line"><span class="cl">    <span class="kd">var</span> <span class="nx">m</span> <span class="kd">map</span><span class="p">[</span><span class="kt">string</span><span class="p">]</span><span class="kd">interface</span><span class="p">{}</span>    <span class="c1">//声明变量，不分配内存
+</span></span></span><span class="line"><span class="cl"><span class="c1"></span>    <span class="nx">m</span> <span class="p">=</span> <span class="nb">make</span><span class="p">(</span><span class="kd">map</span><span class="p">[</span><span class="kt">string</span><span class="p">]</span><span class="kd">interface</span><span class="p">{})</span> <span class="c1">//必可不少，分配内存
+</span></span></span><span class="line"><span class="cl"><span class="c1"></span>    <span class="nx">m</span><span class="p">[</span><span class="s">&#34;name&#34;</span><span class="p">]</span> <span class="p">=</span> <span class="s">&#34;saul&#34;</span>
+</span></span><span class="line"><span class="cl">    <span class="kd">var</span> <span class="nx">age</span> <span class="kt">int</span> <span class="p">=</span> <span class="mi">20</span>
+</span></span><span class="line"><span class="cl">    <span class="nx">m</span><span class="p">[</span><span class="s">&#34;age&#34;</span><span class="p">]</span> <span class="p">=</span> <span class="nx">age</span>
+</span></span><span class="line"><span class="cl">    <span class="nx">m</span><span class="p">[</span><span class="s">&#34;nation&#34;</span><span class="p">]</span> <span class="p">=</span> <span class="s">&#34;China&#34;</span>
+</span></span><span class="line"><span class="cl">    <span class="nf">print_map</span><span class="p">(</span><span class="nx">m</span><span class="p">)</span>
+</span></span><span class="line"><span class="cl">    <span class="nx">fmt</span><span class="p">.</span><span class="nf">Println</span><span class="p">(</span><span class="s">&#34;==============&#34;</span><span class="p">)</span>
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl">    <span class="nx">data</span><span class="p">,</span> <span class="nx">err</span><span class="o">:=</span><span class="nx">json</span><span class="p">.</span><span class="nf">Marshal</span><span class="p">(</span><span class="nx">m</span><span class="p">)</span>
+</span></span><span class="line"><span class="cl">    <span class="k">if</span> <span class="nx">err</span> <span class="o">!=</span> <span class="kc">nil</span> <span class="p">{</span>
+</span></span><span class="line"><span class="cl">        
+</span></span><span class="line"><span class="cl">    <span class="p">}</span>
+</span></span><span class="line"><span class="cl">    <span class="nx">fmt</span><span class="p">.</span><span class="nf">Println</span><span class="p">(</span><span class="s">&#34;err:&#34;</span><span class="p">,</span> <span class="nx">err</span><span class="p">)</span>
+</span></span><span class="line"><span class="cl">    <span class="nx">fmt</span><span class="p">.</span><span class="nf">Println</span><span class="p">(</span><span class="nx">data</span><span class="p">)</span>
+</span></span><span class="line"><span class="cl">    <span class="nx">fmt</span><span class="p">.</span><span class="nf">Println</span><span class="p">()</span>
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl">    <span class="nx">m1</span> <span class="o">:=</span> <span class="nb">make</span><span class="p">(</span><span class="kd">map</span><span class="p">[</span><span class="kt">string</span><span class="p">]</span><span class="kd">interface</span><span class="p">{})</span>
+</span></span><span class="line"><span class="cl">    <span class="nx">err</span> <span class="p">=</span> <span class="nx">json</span><span class="p">.</span><span class="nf">Unmarshal</span><span class="p">(</span><span class="nx">data</span><span class="p">,</span> <span class="o">&amp;</span><span class="nx">m1</span><span class="p">)</span>
+</span></span><span class="line"><span class="cl">    <span class="nx">fmt</span><span class="p">.</span><span class="nf">Println</span><span class="p">(</span><span class="s">&#34;err:&#34;</span><span class="p">,</span> <span class="nx">err</span><span class="p">)</span>
+</span></span><span class="line"><span class="cl">    <span class="nx">fmt</span><span class="p">.</span><span class="nf">Println</span><span class="p">(</span><span class="nx">m1</span><span class="p">)</span>
+</span></span><span class="line"><span class="cl">    <span class="nf">print_map</span><span class="p">(</span><span class="nx">m1</span><span class="p">)</span>
+</span></span><span class="line"><span class="cl">    <span class="nx">fmt</span><span class="p">.</span><span class="nf">Println</span><span class="p">()</span>
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl">    <span class="k">if</span> <span class="nx">m1</span><span class="p">[</span><span class="s">&#34;name&#34;</span><span class="p">]</span><span class="o">!=</span> <span class="kc">nil</span> <span class="p">{</span>
+</span></span><span class="line"><span class="cl">        <span class="nx">fmt</span><span class="p">.</span><span class="nf">Println</span><span class="p">(</span><span class="nx">m1</span><span class="p">[</span><span class="s">&#34;name&#34;</span><span class="p">].(</span><span class="kt">string</span><span class="p">))</span>
+</span></span><span class="line"><span class="cl">    <span class="p">}</span>
+</span></span><span class="line"><span class="cl">    <span class="k">if</span> <span class="nx">m1</span><span class="p">[</span><span class="s">&#34;type&#34;</span><span class="p">]</span><span class="o">!=</span> <span class="kc">nil</span> <span class="p">{</span>
+</span></span><span class="line"><span class="cl">        <span class="nx">fmt</span><span class="p">.</span><span class="nf">Println</span><span class="p">(</span><span class="nx">m1</span><span class="p">[</span><span class="s">&#34;type&#34;</span><span class="p">].(</span><span class="kt">string</span><span class="p">))</span>
+</span></span><span class="line"><span class="cl">    <span class="p">}</span> <span class="k">else</span> <span class="p">{</span>
+</span></span><span class="line"><span class="cl">        <span class="nx">fmt</span><span class="p">.</span><span class="nf">Println</span><span class="p">(</span><span class="s">&#34;there is not the key of type&#34;</span><span class="p">)</span>
+</span></span><span class="line"><span class="cl">    <span class="p">}</span>
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl"><span class="p">}</span>
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl"><span class="c1">//解析 map[string]interface{} 数据格式
+</span></span></span><span class="line"><span class="cl"><span class="c1"></span><span class="kd">func</span> <span class="nf">print_map</span><span class="p">(</span><span class="nx">m</span> <span class="kd">map</span><span class="p">[</span><span class="kt">string</span><span class="p">]</span><span class="kd">interface</span><span class="p">{})</span> <span class="p">{</span>
+</span></span><span class="line"><span class="cl">    <span class="k">for</span> <span class="nx">k</span><span class="p">,</span> <span class="nx">v</span> <span class="o">:=</span> <span class="k">range</span> <span class="nx">m</span> <span class="p">{</span>
+</span></span><span class="line"><span class="cl">        <span class="k">switch</span> <span class="nx">value</span> <span class="o">:=</span> <span class="nx">v</span><span class="p">.(</span><span class="kd">type</span><span class="p">)</span> <span class="p">{</span>
+</span></span><span class="line"><span class="cl">        <span class="k">case</span> <span class="kc">nil</span><span class="p">:</span>
+</span></span><span class="line"><span class="cl">            <span class="nx">fmt</span><span class="p">.</span><span class="nf">Println</span><span class="p">(</span><span class="nx">k</span><span class="p">,</span> <span class="s">&#34;is nil&#34;</span><span class="p">,</span> <span class="s">&#34;null&#34;</span><span class="p">)</span>
+</span></span><span class="line"><span class="cl">        <span class="k">case</span> <span class="kt">string</span><span class="p">:</span>
+</span></span><span class="line"><span class="cl">            <span class="nx">fmt</span><span class="p">.</span><span class="nf">Println</span><span class="p">(</span><span class="nx">k</span><span class="p">,</span> <span class="s">&#34;is string&#34;</span><span class="p">,</span> <span class="nx">value</span><span class="p">)</span>
+</span></span><span class="line"><span class="cl">        <span class="k">case</span> <span class="kt">int</span><span class="p">:</span>
+</span></span><span class="line"><span class="cl">            <span class="nx">fmt</span><span class="p">.</span><span class="nf">Println</span><span class="p">(</span><span class="nx">k</span><span class="p">,</span> <span class="s">&#34;is int&#34;</span><span class="p">,</span> <span class="nx">value</span><span class="p">)</span>
+</span></span><span class="line"><span class="cl">        <span class="k">case</span> <span class="kt">float64</span><span class="p">:</span>
+</span></span><span class="line"><span class="cl">            <span class="nx">fmt</span><span class="p">.</span><span class="nf">Println</span><span class="p">(</span><span class="nx">k</span><span class="p">,</span> <span class="s">&#34;is float64&#34;</span><span class="p">,</span> <span class="nx">value</span><span class="p">)</span>
+</span></span><span class="line"><span class="cl">        <span class="k">case</span> <span class="p">[]</span><span class="kd">interface</span><span class="p">{}:</span>
+</span></span><span class="line"><span class="cl">            <span class="nx">fmt</span><span class="p">.</span><span class="nf">Println</span><span class="p">(</span><span class="nx">k</span><span class="p">,</span> <span class="s">&#34;is an array:&#34;</span><span class="p">)</span>
+</span></span><span class="line"><span class="cl">            <span class="k">for</span> <span class="nx">i</span><span class="p">,</span> <span class="nx">u</span> <span class="o">:=</span> <span class="k">range</span> <span class="nx">value</span> <span class="p">{</span>
+</span></span><span class="line"><span class="cl">                <span class="nx">fmt</span><span class="p">.</span><span class="nf">Println</span><span class="p">(</span><span class="nx">i</span><span class="p">,</span> <span class="nx">u</span><span class="p">)</span>
+</span></span><span class="line"><span class="cl">            <span class="p">}</span>
+</span></span><span class="line"><span class="cl">        <span class="k">case</span> <span class="kd">map</span><span class="p">[</span><span class="kt">string</span><span class="p">]</span><span class="kd">interface</span><span class="p">{}:</span>
+</span></span><span class="line"><span class="cl">            <span class="nx">fmt</span><span class="p">.</span><span class="nf">Println</span><span class="p">(</span><span class="nx">k</span><span class="p">,</span> <span class="s">&#34;is an map:&#34;</span><span class="p">)</span>
+</span></span><span class="line"><span class="cl">            <span class="nf">print_map</span><span class="p">(</span><span class="nx">value</span><span class="p">)</span>
+</span></span><span class="line"><span class="cl">        <span class="k">default</span><span class="p">:</span>
+</span></span><span class="line"><span class="cl">            <span class="nx">fmt</span><span class="p">.</span><span class="nf">Println</span><span class="p">(</span><span class="nx">k</span><span class="p">,</span> <span class="s">&#34;is unknown type&#34;</span><span class="p">,</span> <span class="nx">fmt</span><span class="p">.</span><span class="nf">Sprintf</span><span class="p">(</span><span class="s">&#34;%T&#34;</span><span class="p">,</span> <span class="nx">v</span><span class="p">))</span>
+</span></span><span class="line"><span class="cl">        <span class="p">}</span>
+</span></span><span class="line"><span class="cl">    <span class="p">}</span>
+</span></span><span class="line"><span class="cl"><span class="p">}</span>
+</span></span></code></pre></td></tr></table>
+</div>
+</div><p>结果：</p>
+<div class="highlight"><div class="chroma">
+<table class="lntable"><tr><td class="lntd">
+<pre tabindex="0" class="chroma"><code><span class="lnt"> 1
+</span><span class="lnt"> 2
+</span><span class="lnt"> 3
+</span><span class="lnt"> 4
+</span><span class="lnt"> 5
+</span><span class="lnt"> 6
+</span><span class="lnt"> 7
+</span><span class="lnt"> 8
+</span><span class="lnt"> 9
+</span><span class="lnt">10
+</span><span class="lnt">11
+</span><span class="lnt">12
+</span></code></pre></td>
+<td class="lntd">
+<pre tabindex="0" class="chroma"><code class="language-fallback" data-lang="fallback"><span class="line"><span class="cl">name is string saul
+</span></span><span class="line"><span class="cl">age is int 20
+</span></span><span class="line"><span class="cl">nation is string China
+</span></span><span class="line"><span class="cl">==============
+</span></span><span class="line"><span class="cl">[123 34 97 103 101 34 58 50 48 44 34 110 97 109 101 34 58 34 115 97 117 108 34 44 34 110 97 116 105 111 110 34 58 34 67 104 105 110 97 34 125]
+</span></span><span class="line"><span class="cl">==============
+</span></span><span class="line"><span class="cl">age is float64 20
+</span></span><span class="line"><span class="cl">name is string saul
+</span></span><span class="line"><span class="cl">nation is string China
+</span></span><span class="line"><span class="cl">==============
+</span></span><span class="line"><span class="cl">saul
+</span></span><span class="line"><span class="cl">there is not the key of type
+</span></span></code></pre></td></tr></table>
+</div>
+</div>]]></description>
+</item>
+<item>
+    <title>kilim疑问解答</title>
+    <link>https://jordanzheng.github.io/question-about-kilim/</link>
+    <pubDate>Sun, 03 Feb 2019 22:31:07 &#43;0000</pubDate>
+    <author>saul</author>
+    <guid>https://jordanzheng.github.io/question-about-kilim/</guid>
+    <description><![CDATA[<h2 id="1-kilim中的task即用户线程如何调度和切换">1. Kilim中的Task，即用户线程如何调度和切换？</h2>
+<p>相比传统的Thread多线程间抢占式调度，Kilim中的Task采用的是协作式调度，即由Task本身负责释放和恢复占用CPU
+在多任务的调度上操作系统采取抢占式和协作式两种方式。</p>
+<h2 id="2kilim如何识别线程堆栈中哪些方法是pauseable即可暂停的">2.Kilim如何识别线程堆栈中哪些方法是Pauseable，即可暂停的？</h2>
+<p>Kilim通过代码编译期识别抛出的Pauseable异常注解，来判断识别方法可暂停</p>
+<h2 id="3kilim是如何实现线程执行过程中当前方法的暂停和恢复">3.Kilim是如何实现线程执行过程中当前方法的暂停和恢复？</h2>
+<p>Kilim通过编译期字节码编织，对每一个可暂停的方法进行字节码处理，在方法执行前和执行后加上相关的执行上下文的处理，暂停时会保存整个线程堆栈，包括完整栈帧，程序计数器等等，然后通过特定的字节码跳转指令jsr跳转到另外一个Task的执行方法中，恢复时将复原整个线程堆栈，包括完整栈帧，程序计数器等等，回到上次暂停时的指令地址处继续执行。</p>
+<h2 id="4kilim中的weaver工具是如何针对编译的代码实现织入的">4.Kilim中的Weaver<strong>工具是如何针对编译的代码实现织入的</strong>？</h2>
+<p>字节码技术，具体来说通过ASM字节码框架实现对class文件的重写</p>
+<h2 id="5如何将一个传统的线程执行方法改造成kilim的task模型">5.如何将一个传统的线程执行方法改造成Kilim的Task模型？</h2>
+<p>Kilim通过编译期字节码编织，对每一个可暂停的方法进行字节码处理，在方法执行前和执行后加上相关的执行上下文的处理：</p>
+<ul>
+<li>首先需要实现一个类继承Task，实现Task的execute方法，业务逻辑不再放在线程的run方法体体，而是放在Task的execute方法体中。</li>
+<li>execute方法中调用的方法如果是可能暂停的，则必须声明抛出Pauseable异常，否则可以不需要抛出。</li>
+<li>Task之间的通信通过Mailbox邮箱来传递消息，put和get时存在三种版本，包括阻塞线程，阻塞Task但不阻塞线程，非阻塞。</li>
+<li>针对这些Task和Pauseable方法编译时，需要使用Kilim提供的Weaver工具进行编织处理，如果不进行编织处理，运行时将会异常。</li>
+<li>对于Kilim中的方法需要注意，一个Pauseable方法只能被另一个Pauseable方法调用。</li>
+</ul>
+<h2 id="6--kilim中哪些操作可以使得task暂停或者恢复运行">6.  Kilim中哪些操作可以使得Task暂停或者恢复运行？</h2>
+<p>Kilim中常用有以下方法暂停、恢复Task的运行：</p>
+<ul>
+<li>Task.sleep()能使当前Task暂停运行一段时间</li>
+<li>Task.yield()能使当前Task暂停放弃运行</li>
+<li>Task.pause()能使当前Task暂停执行</li>
+<li>Task.resume()能使当前Task恢复执行</li>
+<li>Mailbox.get()能使当前Task暂停执行直到Mailbox队列非空。</li>
+</ul>
+<h2 id="7--kilim中task占用的内存有多大">7.  Kilim中Task占用的内存有多大？</h2>
+<p>一个Task所占用的内存包括以下部分：</p>
+<ul>
+<li>Task的具体实现类实例本身占用的内存</li>
+<li>Task之间通信依赖的Maibox的内容占用的内存</li>
+<li>如果Task暂停，那么Task函数调用链上的函数栈帧数组需要保存到Fiber中，不过Kilim的Weaver工具在代码编译期间将分析代码控制流程、有用的变量、常量等，保证只保存在后续Task恢复执行时需要用到的数据。</li>
+</ul>
+<h2 id="8--kilim中fiber的作用">8.  Kilim中Fiber的作用</h2>
+<p>Fiber主要作用用来管理和保存Task执行过程中调用层次中的函数栈帧的状态，这里的函数栈帧与JVM运行时中的函数栈帧是相同含义，但是Fiber不会将函数栈帧中的全部信息原封不动的镜像拷贝一份，比如局部变量表中的所有变量，而是经过代码分析之后有选择的暂存有必要保留的变量，一般只需要保存后续执行流程中需要用到的变量，例如静态常量等就无需保存到Fiber中，因为静态变量可以直接通过iconst之类的字节码直接加载到操作数栈。</p>
+<h2 id="9--kilim中fiber中的pc的真正含义">9.  Kilim中Fiber中的pc的真正含义？</h2>
+<p>Fiber中的pc，字面意义是指程序计数器，实际含义是：如果pc值为0，则表示第一次开始执行，程序执行流程和字节码增强前的流程是一样的；如果pc值为N，则表示直接跳转至本函数中第N个Pauseable方法处开始执行，说明之前执行到第N个Pauseable方法时暂停了，此时Task恢复执行，字节码层面通过tableswitch指令将直接跳转该Pauseable方法处执行，也即再次进入该函数执行体。以此类推，整个函数调用链均按照这种逻辑流转。</p>
+<div class="highlight"><div class="chroma">
+<table class="lntable"><tr><td class="lntd">
+<pre tabindex="0" class="chroma"><code><span class="lnt"> 1
+</span><span class="lnt"> 2
+</span><span class="lnt"> 3
+</span><span class="lnt"> 4
+</span><span class="lnt"> 5
+</span><span class="lnt"> 6
+</span><span class="lnt"> 7
+</span><span class="lnt"> 8
+</span><span class="lnt"> 9
+</span><span class="lnt">10
+</span><span class="lnt">11
+</span><span class="lnt">12
+</span><span class="lnt">13
+</span></code></pre></td>
+<td class="lntd">
+<pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kt">void</span><span class="w"> </span><span class="nf">function</span><span class="p">()</span><span class="w"> </span><span class="k">throw</span><span class="w"> </span><span class="n">Pauseable</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w"></span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">XXX</span><span class="p">;</span><span class="w">  </span><span class="c1">// 临时变量等初始化</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">A</span><span class="p">();</span><span class="w">  </span><span class="c1">// function A is pauseable，如果执行到函数A 暂停了，则pc=1</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">B</span><span class="p">();</span><span class="w">  </span><span class="c1">// function B is pauseable，如果执行到函数B暂停了，则pc=2，下次恢复时从function()函数入口直接跳转到这里，执行函数B</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">C</span><span class="p">();</span><span class="w">  </span><span class="c1">// function C is pauseable，如果执行到函数B暂停了，则pc=3，下次恢复时从function()函数入口直接跳转到这里，执行函数C  </span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w"></span><span class="p">}</span><span class="w">
+</span></span></span></code></pre></td></tr></table>
+</div>
+</div><h2 id="10-kilim中fiber中state的作用">10. Kilim中Fiber中State的作用？</h2>
+<p>Fiber中的State作用主要体现在curState和stateStack两个变量，它们用来维护函数调用链执行过程中的函数栈帧。</p>
+<p>当Task将要执行某个Pauseable方法时，将首先调用Fiber的down方法，来记录当前执行到整个函数调用链中的下一层次，并记录curState和pc。</p>
+<p>当Task在执行某个Pauseable方法过程中暂停时，内部会调用Task的pause方法，而pause直接调用togglePause方法，这个方法会根据curState是否为null，来设置Fiber的isPausing的值，而isPausing表示Task是暂停还是恢复，相应源码如下：</p>
+<div class="highlight"><div class="chroma">
+<table class="lntable"><tr><td class="lntd">
+<pre tabindex="0" class="chroma"><code><span class="lnt"> 1
+</span><span class="lnt"> 2
+</span><span class="lnt"> 3
+</span><span class="lnt"> 4
+</span><span class="lnt"> 5
+</span><span class="lnt"> 6
+</span><span class="lnt"> 7
+</span><span class="lnt"> 8
+</span><span class="lnt"> 9
+</span><span class="lnt">10
+</span><span class="lnt">11
+</span></code></pre></td>
+<td class="lntd">
+<pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">curState</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="kc">null</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">setState</span><span class="p">(</span><span class="n">PAUSE_STATE</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w"></span><span class="p">}</span><span class="w"> </span><span class="k">else</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">stateStack</span><span class="o">[</span><span class="n">iStack</span><span class="o">]</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="kc">null</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">isPausing</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="kc">false</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w"></span><span class="p">}</span><span class="w">
+</span></span></span></code></pre></td></tr></table>
+</div>
+</div><p>当Task执行完某个Pauseable方法时，将会调用Fiber的up方法，标识调用某个Pauseable方法返回，且up方法的返回值表示该Pauseable方法是正常返回还是暂停返回，因为up方法内部会根据Fiber中的isPausing变量值和本函数栈帧stateStack[iStack]是否为null来判断是否暂停，以及函数栈帧是否已经保存。如果是PAUSING__NO_STATE，说明被调函数暂停，本函数还未保存栈帧，则需要将本函数栈帧，一般后续执行需要使用到的变量（包括函数实参、函数局部变量）保存到State中，也即 stateStack[iStack]，</p>
+<div class="highlight"><div class="chroma">
+<table class="lntable"><tr><td class="lntd">
+<pre tabindex="0" class="chroma"><code><span class="lnt"> 1
+</span><span class="lnt"> 2
+</span><span class="lnt"> 3
+</span><span class="lnt"> 4
+</span><span class="lnt"> 5
+</span><span class="lnt"> 6
+</span><span class="lnt"> 7
+</span><span class="lnt"> 8
+</span><span class="lnt"> 9
+</span><span class="lnt">10
+</span><span class="lnt">11
+</span><span class="lnt">12
+</span><span class="lnt">13
+</span><span class="lnt">14
+</span><span class="lnt">15
+</span><span class="lnt">16
+</span><span class="lnt">17
+</span><span class="lnt">18
+</span><span class="lnt">19
+</span><span class="lnt">20
+</span><span class="lnt">21
+</span><span class="lnt">22
+</span></code></pre></td>
+<td class="lntd">
+<pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="w">   </span><span class="cm">/*
+</span></span></span><span class="line"><span class="cl"><span class="cm">     * Status indicators returned by down()
+</span></span></span><span class="line"><span class="cl"><span class="cm">     *
+</span></span></span><span class="line"><span class="cl"><span class="cm">     * normal return, nothing to restore
+</span></span></span><span class="line"><span class="cl"><span class="cm">     */</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="kd">static</span><span class="w"> </span><span class="kd">final</span><span class="w"> </span><span class="kt">int</span><span class="w">   </span><span class="n">NOT_PAUSING__NO_STATE</span><span class="w">  </span><span class="o">=</span><span class="w"> </span><span class="n">0</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="cm">/*
+</span></span></span><span class="line"><span class="cl"><span class="cm">     * Normal return, have saved state to restore before resuming
+</span></span></span><span class="line"><span class="cl"><span class="cm">     */</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="kd">static</span><span class="w"> </span><span class="kd">final</span><span class="w"> </span><span class="kt">int</span><span class="w">   </span><span class="n">NOT_PAUSING__HAS_STATE</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">1</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="cm">/*
+</span></span></span><span class="line"><span class="cl"><span class="cm">     * Pausing, and need to save state before returning
+</span></span></span><span class="line"><span class="cl"><span class="cm">     */</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="kd">static</span><span class="w"> </span><span class="kd">final</span><span class="w"> </span><span class="kt">int</span><span class="w">   </span><span class="n">PAUSING__NO_STATE</span><span class="w">      </span><span class="o">=</span><span class="w"> </span><span class="n">2</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="cm">/*
+</span></span></span><span class="line"><span class="cl"><span class="cm">     * Pausing, and have saved state from an earlier invocation,
+</span></span></span><span class="line"><span class="cl"><span class="cm">     * so nothing left to do.
+</span></span></span><span class="line"><span class="cl"><span class="cm">     */</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="kd">static</span><span class="w"> </span><span class="kd">final</span><span class="w"> </span><span class="kt">int</span><span class="w">   </span><span class="n">PAUSING__HAS_STATE</span><span class="w">     </span><span class="o">=</span><span class="w"> </span><span class="n">3</span><span class="p">;</span><span class="w">
+</span></span></span></code></pre></td></tr></table>
+</div>
+</div><h2 id="11什么场景下适合做kilim协程">11.什么场景下适合做Kilim协程？</h2>
+<p><strong>IO密集型的应用比较适合使用协程</strong>，比如应用中存在较多的与后端的网络交互，存在较多的时间在等待后端响应,可以保证线程不会阻塞在等待网络响应，充分利用多核多线程的能力。而对于CPU密集型应用，由于大部分情况CPU都比较繁忙，Kilim反而不会产生很好的作用。</p>
+<h2 id="12kilim中task的工作机制">12.Kilim中Task的工作机制？</h2>
+<p>Actor采取的这种类似消息机制的方式，实际在守护线程和外部线程之间有一个队列，俗称信箱，外部线程只要把请求放入，守护线程就读取进行处理。这种异步高效方式是Actor基本原理。Task 是轻量型的线程，它们通过 Kilim 的 Mailbox 类型与其他 Task 通信。</p>
+<h2 id="13kilim框架做了什么">13.Kilim框架做了什么？</h2>
+<ol>
+<li>利用字节码增强(基于ASM字节码框架)，将普通代码转化为支持协程的代码；</li>
+<li>调用pausable的时候，如果pause了就保存当前方法栈的State，停止执行，将控制权交给调度器；</li>
+<li>调度器负责协调就绪的协程；</li>
+<li>协程resume的时候，自动恢复State，回复到上次执行的位置继续执行</li>
+</ol>
+]]></description>
+</item>
+<item>
+    <title>浅谈Java协程开源库---kilim</title>
+    <link>https://jordanzheng.github.io/simple-analysis-kilim/</link>
+    <pubDate>Sat, 02 Feb 2019 21:48:00 &#43;0000</pubDate>
+    <author>saul</author>
+    <guid>https://jordanzheng.github.io/simple-analysis-kilim/</guid>
+    <description><![CDATA[<h2 id="0背景">0、背景</h2>
+<p>​    近年来由于一批新兴的语言的流行，存在已久的协程也焕发出新的青春。类似Lua、Go、Phthon等语言都原生支持协程，而传统的C语言中，C标准库里 的函数setjmp和longjmp可以用来实现协程，另外一种广为使用的C语言协程非标准库则是 ucontext组件。由于协程在Java语言层面原生不支持，因此在Java中如果要使用协程，则需要使用第三方的协程框架。Kilim正是这样一个比 较著名的Java 协程开源库。</p>
+<!-- more -->
+<h2 id="1kilim是什么">1、kilim是什么</h2>
+<p>Kilim是一个Java的actor框架，由剑桥的博士sriram srinivasan开发的一个用于在Java中使用Coroutine的框架。它由一个字节码后处理器(“ weaver”)、一个带缓冲邮箱(多生产者、单消费者队列)的运行时库、一个用户级调度器组成。</p>
+<h2 id="2kilim协程框架图">2、Kilim协程框架图</h2>
+<p>Kilim协程框架的整体结构图如下，包括的核心组件：Scheduler协程调度器，WorkerThread工作者线程，Task任务，Mailbox消息邮箱队列，Fiber协程上下文。</p>
+<p></p>
+<h3 id="1task">1、Task</h3>
+<p>Task对象是Kilim中核心的结构，所有业务的逻辑代码都是在Task中执行。Task可以理解为Actor模型中的Actor，Task的执行过程 中可以被暂停，也可以被再次唤醒。使用方式上与Thread 基本类似，启动需要调用Task的start 方法。</p>
+<div class="highlight"><div class="chroma">
+<table class="lntable"><tr><td class="lntd">
+<pre tabindex="0" class="chroma"><code><span class="lnt">1
+</span><span class="lnt">2
+</span><span class="lnt">3
+</span><span class="lnt">4
+</span><span class="lnt">5
+</span><span class="lnt">6
+</span><span class="lnt">7
+</span></code></pre></td>
+<td class="lntd">
+<pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="n">Task</span><span class="w"> </span><span class="nf">start</span><span class="p">()</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">scheduler</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="kc">null</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="n">setScheduler</span><span class="p">(</span><span class="n">Scheduler</span><span class="p">.</span><span class="na">getDefaultScheduler</span><span class="p">());</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">resume</span><span class="p">();</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">return</span><span class="w"> </span><span class="k">this</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
+</span></span></span></code></pre></td></tr></table>
+</div>
+</div><h3 id="2-scheduler">2、 Scheduler</h3>
+<p>Scheduler是Kilim框架中核心的任务调度器，负责管理任务的工作者线程WorkerThread，以及一个基本的FIFO队列，维护着 Task任务列表，Scheduler负责分派Task给指定的工作者线程WorkerThread执行，其实现上类似于ExecutorService 线程池管理Runnable和Callable任务的执行。工作者线程WorkerThread的默认初始化个数为CPU核数，且所有空闲的线程会添加到 RingQueue队列中。</p>
+<div class="highlight"><div class="chroma">
+<table class="lntable"><tr><td class="lntd">
+<pre tabindex="0" class="chroma"><code><span class="lnt">1
+</span><span class="lnt">2
+</span><span class="lnt">3
+</span><span class="lnt">4
+</span><span class="lnt">5
+</span><span class="lnt">6
+</span><span class="lnt">7
+</span></code></pre></td>
+<td class="lntd">
+<pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="n">LinkedList</span><span class="o">&lt;</span><span class="n">WorkerThread</span><span class="o">&gt;</span><span class="w"> </span><span class="n">allThreads</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">LinkedList</span><span class="o">&lt;</span><span class="n">WorkerThread</span><span class="o">&gt;</span><span class="p">();</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="n">RingQueue</span><span class="o">&lt;</span><span class="n">WorkerThread</span><span class="o">&gt;</span><span class="w"> </span><span class="n">waitingThreads</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">RingQueue</span><span class="o">&lt;</span><span class="n">WorkerThread</span><span class="o">&gt;</span><span class="p">(</span><span class="n">10</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">protected</span><span class="w"> </span><span class="kd">volatile</span><span class="w"> </span><span class="kt">boolean</span><span class="w"> </span><span class="n">shutdown</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="kc">false</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="n">RingQueue</span><span class="o">&lt;</span><span class="n">Task</span><span class="o">&gt;</span><span class="w"> </span><span class="n">runnableTasks</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">RingQueue</span><span class="o">&lt;</span><span class="n">Task</span><span class="o">&gt;</span><span class="p">(</span><span class="n">100</span><span class="p">);</span><span class="w">
+</span></span></span></code></pre></td></tr></table>
+</div>
+</div><h3 id="3workerthread">3、WorkerThread</h3>
+<p>WorkerThread是执行任务Task的具体线程，内部维护一个默认大小为10的环形队列RingQueue，与ThreadPoolExecutor线程池中定义的Worker类似，循环阻塞式的从任务队列中获取下一个任务执行。</p>
+<div class="highlight"><div class="chroma">
+<table class="lntable"><tr><td class="lntd">
+<pre tabindex="0" class="chroma"><code><span class="lnt"> 1
+</span><span class="lnt"> 2
+</span><span class="lnt"> 3
+</span><span class="lnt"> 4
+</span><span class="lnt"> 5
+</span><span class="lnt"> 6
+</span><span class="lnt"> 7
+</span><span class="lnt"> 8
+</span><span class="lnt"> 9
+</span><span class="lnt">10
+</span><span class="lnt">11
+</span><span class="lnt">12
+</span><span class="lnt">13
+</span><span class="lnt">14
+</span><span class="lnt">15
+</span><span class="lnt">16
+</span><span class="lnt">17
+</span><span class="lnt">18
+</span><span class="lnt">19
+</span><span class="lnt">20
+</span><span class="lnt">21
+</span><span class="lnt">22
+</span><span class="lnt">23
+</span><span class="lnt">24
+</span><span class="lnt">25
+</span><span class="lnt">26
+</span><span class="lnt">27
+</span><span class="lnt">28
+</span><span class="lnt">29
+</span><span class="lnt">30
+</span><span class="lnt">31
+</span><span class="lnt">32
+</span><span class="lnt">33
+</span><span class="lnt">34
+</span><span class="lnt">35
+</span></code></pre></td>
+<td class="lntd">
+<pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="n">RingQueue</span><span class="o">&lt;</span><span class="n">Task</span><span class="o">&gt;</span><span class="w">  </span><span class="n">tasks</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">RingQueue</span><span class="o">&lt;</span><span class="n">Task</span><span class="o">&gt;</span><span class="p">(</span><span class="n">10</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="kt">void</span><span class="w"> </span><span class="nf">run</span><span class="p">()</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">try</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="k">while</span><span class="w"> </span><span class="p">(</span><span class="kc">true</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="n">Task</span><span class="w"> </span><span class="n">t</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">getNextTask</span><span class="p">(</span><span class="k">this</span><span class="p">);</span><span class="w"> </span><span class="c1">// blocks until task available</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="n">runningTask</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">t</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="n">t</span><span class="p">.</span><span class="na">_runExecute</span><span class="p">(</span><span class="k">this</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">                </span><span class="n">runningTask</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="kc">null</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="p">}</span><span class="w"> </span><span class="k">catch</span><span class="w"> </span><span class="p">(</span><span class="n">ShutdownException</span><span class="w"> </span><span class="n">se</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="c1">// nothing to do.</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="p">}</span><span class="w"> </span><span class="k">catch</span><span class="w"> </span><span class="p">(</span><span class="n">OutOfMemoryError</span><span class="w"> </span><span class="n">ex</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="n">System</span><span class="p">.</span><span class="na">err</span><span class="p">.</span><span class="na">println</span><span class="p">(</span><span class="s">&#34;Out of memory&#34;</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="p">}</span><span class="w"> </span><span class="k">catch</span><span class="w"> </span><span class="p">(</span><span class="n">Throwable</span><span class="w"> </span><span class="n">ex</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="n">ex</span><span class="p">.</span><span class="na">printStackTrace</span><span class="p">();</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">runningTask</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="kc">null</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
+</span></span></span></code></pre></td></tr></table>
+</div>
+</div><h3 id="4ringqueue">4、RingQueue</h3>
+<p>RingQueue本质上即一个环形队列，作为Queue用于不同的线程之间传递message的设计，和ZeroMQ利用ringbuffer来作为pipe在不同线程之间传递message的用法都是很类似的</p>
+<div class="highlight"><div class="chroma">
+<table class="lntable"><tr><td class="lntd">
+<pre tabindex="0" class="chroma"><code><span class="lnt">1
+</span><span class="lnt">2
+</span><span class="lnt">3
+</span><span class="lnt">4
+</span><span class="lnt">5
+</span><span class="lnt">6
+</span></code></pre></td>
+<td class="lntd">
+<pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kd">class</span> <span class="nc">RingQueue</span><span class="o">&lt;</span><span class="n">T</span><span class="o">&gt;</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">protected</span><span class="w"> </span><span class="n">T</span><span class="o">[]</span><span class="w"> </span><span class="n">elements</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">protected</span><span class="w"> </span><span class="kt">int</span><span class="w"> </span><span class="n">iprod</span><span class="p">;</span><span class="c1">// producer index</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">protected</span><span class="w"> </span><span class="kt">int</span><span class="w"> </span><span class="n">icons</span><span class="p">;</span><span class="c1">// consumer index</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">protected</span><span class="w"> </span><span class="kt">int</span><span class="w"> </span><span class="n">maxSize</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">protected</span><span class="w"> </span><span class="kt">int</span><span class="w"> </span><span class="n">size</span><span class="p">;</span><span class="w">
+</span></span></span></code></pre></td></tr></table>
+</div>
+</div><h3 id="5-mailbox">5、 Mailbox</h3>
+<p>Kilim 中通过Mailbox 对象来发送消息，Mailbox 的基本原则为可以有多个消息发送者，但只能有一个消息接收者，发送的方式有同步发送、异步发送和阻塞线程方式的同步发送三种：</p>
+<ul>
+<li>同步发送是指保证一定能将消息放入发送队列中，如当前发送队列已满，则等待到可用为止，阻塞的为当前Task；</li>
+<li>异步发送则是尝试将消息放入发送队列一次，如果发送失败，则返回false，成功则返回true，不会阻塞Task；</li>
+<li>阻塞线程方式的同步发送是指阻塞当前线程，并保证将消息发送给接收者。</li>
+</ul>
+<div class="highlight"><div class="chroma">
+<table class="lntable"><tr><td class="lntd">
+<pre tabindex="0" class="chroma"><code><span class="lnt"> 1
+</span><span class="lnt"> 2
+</span><span class="lnt"> 3
+</span><span class="lnt"> 4
+</span><span class="lnt"> 5
+</span><span class="lnt"> 6
+</span><span class="lnt"> 7
+</span><span class="lnt"> 8
+</span><span class="lnt"> 9
+</span><span class="lnt">10
+</span><span class="lnt">11
+</span><span class="lnt">12
+</span><span class="lnt">13
+</span><span class="lnt">14
+</span></code></pre></td>
+<td class="lntd">
+<pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kd">class</span> <span class="nc">Mailbox</span><span class="o">&lt;</span><span class="n">T</span><span class="o">&gt;</span><span class="w"> </span><span class="kd">implements</span><span class="w"> </span><span class="n">PauseReason</span><span class="p">,</span><span class="w"> </span><span class="n">EventPublisher</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">T</span><span class="o">[]</span><span class="w"> </span><span class="n">msgs</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">private</span><span class="w"> </span><span class="kt">int</span><span class="w"> </span><span class="n">iprod</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">0</span><span class="p">;</span><span class="w"> </span><span class="c1">// producer index</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">private</span><span class="w"> </span><span class="kt">int</span><span class="w"> </span><span class="n">icons</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">0</span><span class="p">;</span><span class="w"> </span><span class="c1">// consumer index;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">private</span><span class="w"> </span><span class="kt">int</span><span class="w"> </span><span class="n">numMsgs</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">0</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">private</span><span class="w"> </span><span class="kt">int</span><span class="w"> </span><span class="n">maxMsgs</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">300</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="n">EventSubscriber</span><span class="w"> </span><span class="n">sink</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w"></span><span class="p">}</span><span class="w">
+</span></span></span></code></pre></td></tr></table>
+</div>
+</div><p>与发送消息类似，Kilim 中也通过Mailbox 来接收消息，接收方式有同步接收、异步接收以及阻塞线程方式的同步接收三种：</p>
+<ul>
+<li>同步接收是指阻塞当前Task，直到接收到消息才返回；</li>
+<li>异步接收是指立刻返回Mailbox 中的消息，有就返回，没有则返回null；</li>
+<li>阻塞线程方式的同步接收是指阻塞当前线程，直到接收到消息才返回。</li>
+</ul>
+<h3 id="6fiber">6、Fiber</h3>
+<p>Fiber的概念可能稍微难以理解，Kilim中的Fiber对象主要用来维护Task执行过程中的堆栈，Fiber中的主要成员变量有 curState，pc，stateStack，iStack等，其中curState为当前协程的执行状态，stateStack为协程的堆 栈，iStack表示当前的栈帧位置。</p>
+<div class="highlight"><div class="chroma">
+<table class="lntable"><tr><td class="lntd">
+<pre tabindex="0" class="chroma"><code><span class="lnt"> 1
+</span><span class="lnt"> 2
+</span><span class="lnt"> 3
+</span><span class="lnt"> 4
+</span><span class="lnt"> 5
+</span><span class="lnt"> 6
+</span><span class="lnt"> 7
+</span><span class="lnt"> 8
+</span><span class="lnt"> 9
+</span><span class="lnt">10
+</span><span class="lnt">11
+</span><span class="lnt">12
+</span><span class="lnt">13
+</span><span class="lnt">14
+</span><span class="lnt">15
+</span><span class="lnt">16
+</span><span class="lnt">17
+</span><span class="lnt">18
+</span><span class="lnt">19
+</span><span class="lnt">20
+</span><span class="lnt">21
+</span></code></pre></td>
+<td class="lntd">
+<pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kd">final</span><span class="w"> </span><span class="kd">class</span> <span class="nc">Fiber</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="n">State</span><span class="w">               </span><span class="n">curState</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="kt">int</span><span class="w">                 </span><span class="n">pc</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="cm">/*
+</span></span></span><span class="line"><span class="cl"><span class="cm">     * One State object for each activation frame in the call hierarchy.
+</span></span></span><span class="line"><span class="cl"><span class="cm">     */</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">private</span><span class="w"> </span><span class="n">State</span><span class="o">[]</span><span class="w">            </span><span class="n">stateStack</span><span class="w">              </span><span class="o">=</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">State</span><span class="o">[</span><span class="n">10</span><span class="o">]</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="cm">/*
+</span></span></span><span class="line"><span class="cl"><span class="cm">     * Index into stateStack and equal to depth of call hierarchy - 1
+</span></span></span><span class="line"><span class="cl"><span class="cm">     */</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">private</span><span class="w"> </span><span class="kt">int</span><span class="w">                </span><span class="n">iStack</span><span class="w">                  </span><span class="o">=</span><span class="w"> </span><span class="o">-</span><span class="n">1</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="cm">/*
+</span></span></span><span class="line"><span class="cl"><span class="cm">     * The task to which this Fiber belongs
+</span></span></span><span class="line"><span class="cl"><span class="cm">     */</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="n">Task</span><span class="w">                      </span><span class="n">task</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w"></span><span class="p">}</span><span class="w">
+</span></span></span></code></pre></td></tr></table>
+</div>
+</div><h2 id="3kilim的调度流程">3、kilim的调度流程</h2>
+<p>调度流程中有三个主要的类</p>
+<ul>
+<li>Scheduler-调度器</li>
+<li>WorkThread-调度运行承载线程</li>
+<li>Task-类似于Thread，协程的体现者</li>
+</ul>
+<p></p>
+<h2 id="4kilim要解决的问题">4、Kilim要解决的问题</h2>
+<p>Kilim协程框架中最核心需要解决的问题</p>
+<ol>
+<li><strong>如何暂停处理当前任务，转而处理其他任务？</strong></li>
+<li><strong>如何恢复任务继续执行？</strong></li>
+</ol>
+<p>也即如何实现协程本身的 yield / resume的语义特性。</p>
+<h3 id="kilim的解决方案">Kilim的解决方案</h3>
+<p>Kilim框架在实现yield / resume的语义特性时，主要做以下几个事情：</p>
+<ul>
+<li>利用字节码技术(基于ASM字节码框架)，将普通代码转化为支持协程的代码；</li>
+<li>调用Pauseable方法的时候，如果方法暂停了就保存当前方法的堆栈，暂停执行当前Task，将控制权交给Scheduler调度器；</li>
+<li>Scheduler调度器负责协调其他就绪的Task；</li>
+<li>之前暂停的Task恢复的时候，自动恢复对应方法的堆栈，恢复到上次执行的位置继续执行；</li>
+</ul>
+<p>​    其中，第一点是在编译期实现，后面三点是在运行期执行。再稍微详细一点就是：Kilim通过编译期字节码编织，对每一个可暂停（Pauseable）的方 法进行字节码处理，在方法执行前和执行后加上相关的执行上下文的处理，暂停时会保存执行堆栈，然后通过特定的字节码跳转指令goto跳转到另外一个 Task的执行方法中，恢复时将复原整个线程堆栈，回到上次暂停时的位置继续往下执行。</p>
+<h2 id="5kilim的工作原理">5、Kilim的工作原理</h2>
+<p>Kilim最神奇的地方在于字节码增加，那么它是怎样将普通的Java代码改写层支持协程的代码呢？首先上Kilim官方文档中的一张图：</p>
+<p></p>
+<p>这张图也即Kilim实现协程语义的精髓所在，和C语言中实现协程的方式有很大不同，接下来仔细分析。</p>
+<p>​    左边是普通的Java函数代码，与我们常见的函数唯一有所不同的是函数a和b均显示声明抛出Pausable异常，而实际上这个异常在运行期间不会抛出， 它的实际作用类似于注解，使得Kilim能够识别哪些代码需要Weaver工具进行代码增强。函数抛出Pausable异常即表明该函数是可暂停的，</p>
+<p>右边的代码即通过字节码增强后的代码，与左边原始的代码相比，首先函数声明中额外增加了一个Fiber参数，Fiber可以理解为当前纤程、协程的上下 文。Fiber中存储着协程暂停和恢复时需要用到的函数堆栈、程序计数器以及当前函数的执行状态。字节码增强后的代码以调用Pausable方法a为分 界，将整个函数分成几个代码块，也即官网文档中提及的prelude、pre_call、post_call三部分。</p>
+<ul>
+<li>在prelude块中，也即刚进入函数a时将会执行的代码块，将根据Fiber中的pc程序计数器跳转到对应的代码块处开始执行。</li>
+<li>在pre_call块中，也即在调用函数b之前，将调用Fiber的down方法记录当前执行状态和pc程序计数器，标识着函数将进入下一个Pausable方法。</li>
+<li>在post_call块中，也即在调用函数b之后，将调用Fiber的up方法计算函数b调用完成后返回的状态，标识着从一个被调的Pausable方法返回，它既可能是正常的函数b执行完成返回，也可能是函数b执行暂停返回，接着通过这个状态控制后续的执行流程。</li>
+</ul>
+<p>这四种状态分别为：</p>
+<ol>
+<li>NOT_PAUSING__NO_STATE，即被调函数执行完成正常返回，这种情况与即普通的函数执行类似。</li>
+<li>NOT_PAUSING__HAS_STATE，即被调函数执行完成，但还存在上次暂存的栈帧，这种情况一般是函数从上次暂停处恢复执行，且顺利执行完成返回，此时需要恢复函数的栈帧，然后goto到RESUME代码块继续执行。</li>
+<li>PAUSING__NO_STATE，即被调函数执行过程中暂停，且还未保存函数栈帧，需要主调函数执行暂存操作，这种情况一般即第一次协程执行到需要暂停处，此时需要采用字节码暂存函数的栈帧和状态，然后直接return。</li>
+<li>PAUSING__HAS_STATE， 即被调函数执行过程中暂停，且已经保存函数栈帧，这种情况是该Pausable从上次暂停处恢复执行，但是依然没有预期的结果，需要再次暂停，此时因为之 前暂停时函数栈帧和状态都已经保存过，不需要再做什么，因此直接return即可。</li>
+</ol>
+<p>​    OK，到目前为止基本原理大概清晰，不过要把协程与线程的执行过程整个串联起来，形成一个整体还稍显迷惑，接下来详细说明。</p>
+<p>上面已经提到协程执行过程中核心的两个点：一点是调用Pauseable方法的时候，如果暂停了就保存当前方法栈的State，暂停执行当前Task，将 控制权交给Scheduler调度器，另外一点是暂停的Task恢复的时候，自动恢复State，恢复到上次执行的位置继续执行。这两点的具体过程如下：</p>
+<p>前面的Kilim结构图中已经讲到Kilim中有几个核心元素，包括Task、Scheduler、WorkerThread以及Mailbox。其中 WorkerThread即实际执行Task任务的工作者线程，Task即具体的可暂停的业务逻辑，Task与Task之间通过参数化定制的 Mailbox来通信。Kilim将线程run方法体中所有嵌套层级调用的所有Pausable方法组织成一个具有父子关系的调用链，形如 run-&gt;A-&gt;B-&gt;C，通过Task私有的Fiber来记录执行到哪一个层级。通常Kilim中使用Mailbox提供的get、 getb、getnb三个不同版本来接收消息，其中最常用的get会阻塞当前Task而不阻塞当前线程。</p>
+<h3 id="如何实现task的暂停"><strong>如何实现Task的暂停？</strong></h3>
+<p>例如一个运行状态Task的调用链run-&gt;A-&gt;B-&gt;C，其中A、B、C均为Pauseable方法，在函数C中调用了 Mailbox的get方法且设置了超时时长，当整个链嵌套执行到C的get方法这一行时，因为get本身也是一个Pausable方法，如果没有接收到 消息，将会把Task作为该Mailbox的观察者，并调用Task.pause(this)方法暂停自身，然后该get方法即直接返回，get调用返回 后，C根据Fiber的up计算发现是暂停返回，则也暂停本函数，暂存栈帧和状态，直接返回，如此逆向直到run方法，从而实现Task的暂停。</p>
+<div class="highlight"><div class="chroma">
+<table class="lntable"><tr><td class="lntd">
+<pre tabindex="0" class="chroma"><code><span class="lnt"> 1
+</span><span class="lnt"> 2
+</span><span class="lnt"> 3
+</span><span class="lnt"> 4
+</span><span class="lnt"> 5
+</span><span class="lnt"> 6
+</span><span class="lnt"> 7
+</span><span class="lnt"> 8
+</span><span class="lnt"> 9
+</span><span class="lnt">10
+</span><span class="lnt">11
+</span><span class="lnt">12
+</span><span class="lnt">13
+</span><span class="lnt">14
+</span><span class="lnt">15
+</span><span class="lnt">16
+</span><span class="lnt">17
+</span><span class="lnt">18
+</span><span class="lnt">19
+</span></code></pre></td>
+<td class="lntd">
+<pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="w"> </span><span class="kd">public</span><span class="w"> </span><span class="n">T</span><span class="w"> </span><span class="nf">get</span><span class="p">()</span><span class="w"> </span><span class="kd">throws</span><span class="w"> </span><span class="n">Pausable</span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">Task</span><span class="w"> </span><span class="n">t</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">Task</span><span class="p">.</span><span class="na">getCurrentTask</span><span class="p">();</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">T</span><span class="w"> </span><span class="n">msg</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">get</span><span class="p">(</span><span class="n">t</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">while</span><span class="w"> </span><span class="p">(</span><span class="n">msg</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="kc">null</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="n">Task</span><span class="p">.</span><span class="na">pause</span><span class="p">(</span><span class="k">this</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="n">removeMsgAvailableListener</span><span class="p">(</span><span class="n">t</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="n">msg</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">get</span><span class="p">(</span><span class="n">t</span><span class="p">);</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">return</span><span class="w"> </span><span class="n">msg</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
+</span></span></span></code></pre></td></tr></table>
+</div>
+</div><h3 id="如何实现task的恢复呢">如何实现Task的恢复呢？</h3>
+<p>Task暂停的过程中有一步很关键，将该Task作为该Mailbox的观察者，在当有其他线程把消息通过调用Mailbox的put方法添加到Mailbox中时，或者超时定时器触发时，将会回调该Mailbox的观察者，告诉观察者有新的消息到来。这样Task的onEvent被回调，onEvent直接调用resume方法，而resume方法实际最重要的一步即调用Scheduler的schedule方法，将该Task加入到Scheduler的可运行任务队列中，并随机选择一个等待运行的工作者线程，并notify该线程，该线程被唤醒后将执行该Task，重复之前的函数调用链run-&gt;A-&gt;B-&gt;C执行，由于A、B、C三个函数中均已经保存了之前暂停的函数栈帧和状态，因此之前已经执行过的代码块将不会重复执行，会根据Fiber中状态选择性的执行对应的代码块。因为Mailbox中已经有消息，因此再重复执行到get方法时能够直接获取到消息，正常的往下继续执行。这样相当于又走了一次调用链，但是并非重复执行已经执行过的代码，而是恢复执行之前未执行的代码，从而实现Task的恢复</p>
+<div class="highlight"><div class="chroma">
+<table class="lntable"><tr><td class="lntd">
+<pre tabindex="0" class="chroma"><code><span class="lnt">1
+</span><span class="lnt">2
+</span><span class="lnt">3
+</span></code></pre></td>
+<td class="lntd">
+<pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="kd">public</span><span class="w"> </span><span class="kt">void</span><span class="w"> </span><span class="nf">onEvent</span><span class="p">(</span><span class="n">EventPublisher</span><span class="w"> </span><span class="n">ep</span><span class="p">,</span><span class="w"> </span><span class="n">Event</span><span class="w"> </span><span class="n">e</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">resume</span><span class="p">();</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
+</span></span></span></code></pre></td></tr></table>
+</div>
+</div>]]></description>
+</item>
+<item>
+    <title>idea中一个窗口引入多个maven project工程</title>
+    <link>https://jordanzheng.github.io/open-multi-module-in-one-project-for-idea/</link>
+    <pubDate>Mon, 28 Jan 2019 00:49:37 &#43;0000</pubDate>
+    <author>saul</author>
+    <guid>https://jordanzheng.github.io/open-multi-module-in-one-project-for-idea/</guid>
+    <description><![CDATA[<p>之前使用eclipse，可以在一个窗口打开多个maven工程。后来换成使用idea，发现idea默认一个窗口打开一个工程project。有时候项目多了，想在一个idea界面打开多个互不相关的maven工程。</p>
+<!-- more -->
+<blockquote>
+<p>在 IntelliJ IDEA 中，没有类似于 Eclipse 工作空间（<code>Workspace</code>）的概念，而是提出了<code>Project</code>和<code>Module</code>这两个概念。  在 IntelliJ IDEA 中Project是最顶级的结构单元，然后就是Module，一个Project可以有多个Module。目前，主流的大型项目结构基本都是多Module的结构，这类项目一般是按功能划分的，比如：user-core-module、user-facade-module和user-hessian-module等等，模块之间彼此可以相互依赖。通过这些Module的命名可以看出，它们都是处于同一个项目中的模块，彼此之间是有着不可分割的业务关系的。</p>
+<p>因此，我们可以大致总结出：一个Project是由一个或多个Module组成，尽量让各模块处于同一项目之中，此时彼此之间具有互相依赖的关联关系。在这里，之所以说“尽量”，是因为 IntelliJ IDEA 的Project是一个没有具备任何编码设置、构建等开发功能的，主要起到一个项目定义、范围约束、规范类型的效果，或许，我们也可以简单地<strong>理解Project就是一个单纯的目录</strong>，只是这个目录在命名上必须有其代表性的意义。在一般情况下，IntelliJ IDEA 是默认单Project单Module的，这时Project和Module合二为一，在没有修改存储路径的时候，显然Project对Module具有强约束作用啦！不过说实话，这里就是将Module的内容放在了Project的目录下，实际上还是Module自己约束自己。</p>
+<p>原文：https://blog.csdn.net/qq_35246620/article/details/65448689</p>
+</blockquote>
+<p>根据上述理解，可以将多个maven工程作为module导入到idea的project中。idea中的project类比eclipse的workspace。idea中的module类比eclipse的project。</p>
+<p>1、open多个maven工程所在的目录</p>
+<p>2、然后选择要添加的module: File-&gt;Project Structure&hellip;-&gt;Modules可以添加Modules</p>
+<p></p>
+<p>3、选择maven工程导入，一路确认，最后就成功在idea一个界面导入多个maven工程</p>
+<p></p>
+<p>这几个maven工程并无相关性，只是为了和eclipse的workspace类比，减少多个工程之间切换idea界面的麻烦。</p>
+]]></description>
+</item>
+<item>
+    <title>在IntelliJ idea中快速打开文件所在的文件夹的解决办法</title>
+    <link>https://jordanzheng.github.io/open-the-folder-in-idea/</link>
+    <pubDate>Sun, 27 Jan 2019 23:22:31 &#43;0000</pubDate>
+    <author>saul</author>
+    <guid>https://jordanzheng.github.io/open-the-folder-in-idea/</guid>
+    <description><![CDATA[<p>1、 打开settings设置</p>
+<p>2、 选择keymap</p>
+<p>3、 如果是window版本的话，搜索show explorer，右键设置快捷键，通常我设置为Alt + e 键；如果是mac版本的话，搜索file path，默认快捷键是option + command + F12，也可以自己重新定义过一个快捷键，例如：option + E 键。</p>
+<p></p>
+<p>到此，就可以通过快捷键快速打开文件所在的文件夹了。</p>
+<p><strong>PS：很多快捷键都可以通过keymap找到，如果没有，也可以通过keymap设置。熟练使用快捷键，远离鼠标，效率UP</strong></p>
+]]></description>
+</item>
+<item>
+    <title>linux可以ping通但是无法ssh登陆的问题</title>
+    <link>https://jordanzheng.github.io/how-to-solve-connection-refused-errors-in-ssh-connection/</link>
+    <pubDate>Mon, 06 Aug 2018 23:47:17 &#43;0000</pubDate>
+    <author>saul</author>
+    <guid>https://jordanzheng.github.io/how-to-solve-connection-refused-errors-in-ssh-connection/</guid>
+    <description><![CDATA[<p>今天在公司遇到一个奇怪的问题，耗费了大半天才解决。特此总结记录一下解决思路与方法，以便后续能为更快定位类似的问题。</p>
+<h3 id="问题现象">问题现象：</h3>
+<p>无法登陆公司小网中的一台虚拟机，该虚拟机有两张网卡，分别配有两个网段的IP。其中一个网段的IP可以ping通，但是无法ssh登陆，显示<strong>ssh: connect to host 192.171.25.101 port 22: Connection refused</strong>，另外一个网段的IP可以ssh登陆。</p>
+<!-- more -->
+<h3 id="问题定位过程">问题定位过程：</h3>
+<p>刚开始定位思路是检查ssh服务是否ok？，检查是否打开防火墙？后来转念一想，这台虚拟机都可以通过另外一个网卡IP登陆，说明ssh服务是正常的。后来上网google一下遇到的现象，有篇<a href="https://askubuntu.com/questions/30080/how-to-solve-connection-refused-errors-in-ssh-connection" target="_blank" rel="noopener noreffer ">英文文章</a>提到可能是IP冲突导致ssh登陆不了。按照提示用<strong>arping</strong>命令检查一下有问题的IP是否冲突，果不其然，真的是冲突了。至此问题原因清楚了。IP冲突导致可以ping通该IP但是无法通过该IP ssh登陆虚拟机。</p>
+<h3 id="问题解决办法">问题解决办法：</h3>
+<h4 id="一检测linux下ip冲突的命令">一、检测linux下IP冲突的命令</h4>
+<p><strong>arping</strong>：在IP冲突的同网段其他linux上执行<strong>arping</strong>命令检测是否有IP冲突。</p>
+<blockquote>
+<p>[root@dev ~]# arping  -I eth0 192.168.9.120</p>
+<p>ARPING 192.168.1.120 from 192.168.9.200 eth0</p>
+<p>Unicast reply from 192.168.9.120 [40:F4:EC:76:79:C2] 3.084ms</p>
+<p>Unicast reply from 192.168.9.120 [50:7B:9D:25:29:59] 0.817ms</p>
+<p>Unicast reply from 192.168.9.120 [50:7B:9D:25:29:59] 0.810ms</p>
+</blockquote>
+<p>如果只检查出一个MAC地址，则表示网内A机器的的IP：192.168.9.120是唯一的</p>
+<p>如果有以上信息即查出两个MAC地址，则表示网内有一台MAC地址为40:F4:EC:76:79:C2的主机IP地址与A机器相同。</p>
+<p>这时可以通过ifconfig命令验证A机器，如下发现：A机器的MAC地址是50:7B:9D:25:29:59 。
+我们可以用局域网扫描软件找到MAC地址为40:F4:EC:76:79:C2的主机，并将其隔离或更换IP地址。</p>
+<p><strong>检验原理</strong>：</p>
+<p>arping命令是以广播地址发送arp packets，以太网内所有的主机都会收到这个arp packets，但是本机收到之后不会Reply任何信息。</p>
+<p>当我们在linux主机端上执行下面的命令时：
+arping 192.168.9.120　　
+会默认使用eth0，向局域网内所有的主机发送一个：
+who has 192.168.9.120的arp request，tell 192.168.9.120 your mac address，</p>
+<p>当这台windows主机端收到这个arp packets后，则会应答：&ldquo;I am 192.168.9.120 , mac是00:25:e4:6a:4b:f4&rdquo;，这样我们会收到mac地址为00:25:e4:6a:4b:f4的windows主机的Reply信息。</p>
+<h4 id="二修改linux主机ip">二、修改linux主机IP</h4>
+<p>修改冲突的IP地址，冲突的网卡是eth0，</p>
+<ol>
+<li>修改/etc/sysconfig/network/ifcfg-eth0 的IP</li>
+<li>重启网络  service sshd restart</li>
+</ol>
+<h3 id="问题引申">问题引申：</h3>
+<p>IP冲突除了出现上述能ping通但是ssh登陆不了的现象之外，还有可能出现一会儿能登陆、一会儿登陆不了，或者登陆的主机名偶尔会变。其原因可能是 <strong>IP地址冲突后，ssh 登录的设备并不是同一个设备，或者意外的不是你想要登录的设备，因此ssh登录时提示用户验证，但提示信息可能不一样（因为设备不一样了）。</strong></p>
+]]></description>
+</item>
+<item>
+    <title>批量导出CSDN博客至hexo的解决办法</title>
+    <link>https://jordanzheng.github.io/how-to-export-your-csdn-blog/</link>
+    <pubDate>Sat, 31 Mar 2018 23:34:06 &#43;0000</pubDate>
+    <author>saul</author>
+    <guid>https://jordanzheng.github.io/how-to-export-your-csdn-blog/</guid>
+    <description><![CDATA[<p>最近利用gitpage+hexo搭建好自己的博客后，想将自己的之前的csdn博客批量迁移到自己新的hexo博客上，网上搜索了一下， 发现有人已经用python写了个工具，可以将博客导出为Markdown和HTML格式：<a href="https://github.com/gaocegege/csdn-blog-export" target="_blank" rel="noopener noreffer ">csdn-blog-export</a>  。</p>
+<p>用法也很简单：<code>./main.py -u 你的CSDN用户名 -f markdown</code> 或者 <code>./main.py -u cecesjtu -f html</code></p>
+<p>然而脚本直接download下来发现不行，打开源码debug一下。将自己的**（博客主题需切回旧的主题“编程工作室”，我的“大白”主题失效）**  ，修改部分源码：修复获取博客页数的bug、去除正文中博文标题。</p>
+<p>终于拿到自己在csdn上的博客。但是此时导出的博文还不满足hexo博客的格式，于是用python写了个工具转换成满足hexo格式的.md文件。</p>
+<div class="highlight"><div class="chroma">
+<table class="lntable"><tr><td class="lntd">
+<pre tabindex="0" class="chroma"><code><span class="lnt">1
+</span><span class="lnt">2
+</span><span class="lnt">3
+</span><span class="lnt">4
+</span><span class="lnt">5
+</span><span class="lnt">6
+</span><span class="lnt">7
+</span></code></pre></td>
+<td class="lntd">
+<pre tabindex="0" class="chroma"><code class="language-markdown" data-lang="markdown"><span class="line"><span class="cl"> title: 批量导出CSDN博客至hexo的解决办法 
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl">	date: 2018-03-31 23:34:06 
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl">	tags: [hexo,csdn博客,博客迁移] 
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl">	categories: [&#34;经验总结&#34;]
+</span></span></code></pre></td></tr></table>
+</div>
+</div><p>用法：</p>
+<ol>
+<li>利用<a href="https://github.com/Jordanzheng/csdn-blog-export/blob/master/main.py" target="_blank" rel="noopener noreffer ">导出脚本</a>同时导出<code>.md</code>格式和<code>.html</code>格式</li>
+<li>利用<a href="https://github.com/Jordanzheng/csdn-blog-export/blob/master/md2hexo.py" target="_blank" rel="noopener noreffer ">转换脚本</a> 转换导出的csdn博客为hexo格式的博客</li>
+</ol>
+<p>特性：<code>Python</code>脚本从<code>.html</code>文件中提取出博文标题、博文创建时间、标签、分类，将它们插入对应的<code>.md</code>文件</p>
+<p>转换后最终结果：</p>
+<div class="highlight"><div class="chroma">
+<table class="lntable"><tr><td class="lntd">
+<pre tabindex="0" class="chroma"><code><span class="lnt"> 1
+</span><span class="lnt"> 2
+</span><span class="lnt"> 3
+</span><span class="lnt"> 4
+</span><span class="lnt"> 5
+</span><span class="lnt"> 6
+</span><span class="lnt"> 7
+</span><span class="lnt"> 8
+</span><span class="lnt"> 9
+</span><span class="lnt">10
+</span><span class="lnt">11
+</span></code></pre></td>
+<td class="lntd">
+<pre tabindex="0" class="chroma"><code class="language-markdown" data-lang="markdown"><span class="line"><span class="cl">title: 读《王二的经济学故事》
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl">date: 2018-01-18  23:25:44
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl">tags: [经济学, 理财]
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl">category:      读书札记
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl">前段时间看到一个微信公众号推荐一本通俗的经济读物《王二的经济学故事》，在亚马逊试读来一下，觉得很有趣，便从亚马逊下单买了kindle电子版。  
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl">作者用生活中通俗易懂的故事来解释经济学，主要通过主人公王二来阐述解释中国主要的经济政策和经济活动。该书读起来一点也不晦涩难懂，十分有趣，读完后对中国一些常见的经济现象有一定的思考启发。
+</span></span></code></pre></td></tr></table>
+</div>
+</div><p>搞定：）代码已上传到github上，入口：<a href="https://github.com/Jordanzheng/csdn-blog-export" target="_blank" rel="noopener noreffer ">https://github.com/Jordanzheng/csdn-blog-export</a></p>
+]]></description>
+</item>
+</channel>
+</rss>

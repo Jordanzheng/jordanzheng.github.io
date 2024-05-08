@@ -1,0 +1,34 @@
+<rss xmlns:atom="http://www.w3.org/2005/Atom" version="2.0">
+    <channel>
+        <title>Chrome插件 - 标签 - Saul&#39;s blog</title>
+        <link>https://jordanzheng.github.io/tags/chrome%E6%8F%92%E4%BB%B6/</link>
+        <description>Chrome插件 - 标签 - Saul&#39;s blog</description>
+        <generator>Hugo -- gohugo.io</generator><language>zh-CN</language><managingEditor>saulhadis@gmail.com (saul)</managingEditor>
+            <webMaster>saulhadis@gmail.com (saul)</webMaster><copyright>This work is licensed under a Creative Commons Attribution-NonCommercial 4.0 International License.</copyright><lastBuildDate>Thu, 15 Dec 2016 20:38:17 &#43;0000</lastBuildDate><atom:link href="https://jordanzheng.github.io/tags/chrome%E6%8F%92%E4%BB%B6/" rel="self" type="application/rss+xml" /><item>
+    <title>推荐几款好用的chrome插件（持续更新）</title>
+    <link>https://jordanzheng.github.io/%E6%8E%A8%E8%8D%90%E5%87%A0%E6%AC%BE%E5%A5%BD%E7%94%A8%E7%9A%84chrome%E6%8F%92%E4%BB%B6%E6%8C%81%E7%BB%AD%E6%9B%B4%E6%96%B0/</link>
+    <pubDate>Thu, 15 Dec 2016 20:38:17 &#43;0000</pubDate>
+    <author>saul</author>
+    <guid>https://jordanzheng.github.io/%E6%8E%A8%E8%8D%90%E5%87%A0%E6%AC%BE%E5%A5%BD%E7%94%A8%E7%9A%84chrome%E6%8F%92%E4%BB%B6%E6%8C%81%E7%BB%AD%E6%9B%B4%E6%96%B0/</guid>
+    <description><![CDATA[<p>俗话说得好：工欲善其事必先利其器。有几款我自己在使用，觉得不错的chome插件，记录并分享给大家。</p>
+<h2 id="一adblock">一、AdBlock</h2>
+<p>AdBlock是一款chrome中非常著名的广告屏蔽插件，其在chrome浏览器中的安装量已经高达4000万，如此多的安装用户已经足以证明其的强大之处，对于AdBlock本身来说，其号称能够屏蔽整个互联网上的广告。<br>
+对于普通网站上的广告单元、漂浮广告、视频播放广告、图片广告等，AdBlock都能很好地进行处理，使得用户的Chrome浏览环境瞬间变成小清新。</p>
+<p><a href="https://getadblock.com" target="_blank" rel="noopener noreffer "> AdBlock官网下载 </a></p>
+<!-- more -->
+<h2 id="二有道词典chrome划词插件">二、有道词典chrome划词插件</h2>
+<p>作为程序员，时常要阅读英文材料，但英文词汇量的欠缺，读起英文不能一气呵成。此时，在有道词典划词插件的帮助下，哪里不懂划哪里：）</p>
+<p><a href="http://cidian.youdao.com/chromeplus/" target="_blank" rel="noopener noreffer "> 有道词典官网下载 </a></p>
+<h2 id="三一览阅读rss阅读器">三、一览阅读RSS阅读器</h2>
+<p>一览作为国内较好用的RSS阅读器</p>
+<ul>
+<li>支持全平台（ IOS + Android + Web + Chrome 插件）</li>
+<li>支持订阅绝大多数“墙外”的 RSS、订阅知乎用户</li>
+<li>支持全站搜索（免费用户有限制）</li>
+<li>目前有 100 个订阅数的限制（邀请好友或者 VIP 可以增加）</li>
+</ul>
+<p><a href="http://www.yilan.io/extension/" target="_blank" rel="noopener noreffer "> 一览chrome插件 </a></p>
+]]></description>
+</item>
+</channel>
+</rss>

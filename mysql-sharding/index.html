@@ -1,0 +1,328 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+    <head>
+        <meta charset="utf-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <meta name="robots" content="noodp" />
+        <title>mysql千万级数据分表迁移方案 - Saul&#39;s blog</title><meta name="Description" content="Saul&#39;s blog"><meta property="og:url" content="https://jordanzheng.github.io/mysql-sharding/">
+  <meta property="og:site_name" content="Saul&#39;s blog">
+  <meta property="og:title" content="mysql千万级数据分表迁移方案">
+  <meta property="og:description" content="前言 最近抽空将前段时间负责重构服务迁移数据的项目总结一下。主要涉及mysql分表、数据迁移等方面。由于分库分表面对的场景很多，具体问题具体分">
+  <meta property="og:locale" content="zh-CN">
+  <meta property="og:type" content="article">
+    <meta property="article:section" content="posts">
+    <meta property="article:published_time" content="2019-09-14T21:49:00+00:00">
+    <meta property="article:modified_time" content="2024-05-08T18:04:47+08:00">
+    <meta property="article:tag" content="数据库">
+    <meta property="article:tag" content="Mysql">
+    <meta property="article:tag" content="分库分表">
+    <meta property="og:image" content="https://jordanzheng.github.io/logo.png">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:image" content="https://jordanzheng.github.io/logo.png"><meta name="twitter:title" content="mysql千万级数据分表迁移方案">
+<meta name="twitter:description" content="前言 最近抽空将前段时间负责重构服务迁移数据的项目总结一下。主要涉及mysql分表、数据迁移等方面。由于分库分表面对的场景很多，具体问题具体分">
+<meta name="application-name" content="Saul&#39;s blog">
+<meta name="apple-mobile-web-app-title" content="Saul&#39;s blog"><meta name="theme-color" content="#ffffff"><meta name="msapplication-TileColor" content="#da532c"><link rel="shortcut icon" type="image/x-icon" href="/favicon.ico" />
+        <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png">
+        <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png"><link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png"><link rel="mask-icon" href="/safari-pinned-tab.svg" color="#5bbad5"><link rel="manifest" href="/site.webmanifest"><link rel="canonical" href="https://jordanzheng.github.io/mysql-sharding/" /><link rel="prev" href="https://jordanzheng.github.io/batch-create-table-mysql/" /><link rel="next" href="https://jordanzheng.github.io/tes1/" /><link rel="stylesheet" href="/css/style.min.css"><link rel="preload" href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.1.1/css/all.min.css" as="style" onload="this.onload=null;this.rel='stylesheet'">
+        <noscript><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.1.1/css/all.min.css"></noscript><link rel="preload" href="https://cdn.jsdelivr.net/npm/animate.css@4.1.1/animate.min.css" as="style" onload="this.onload=null;this.rel='stylesheet'">
+        <noscript><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/animate.css@4.1.1/animate.min.css"></noscript><script type="application/ld+json">
+    {
+        "@context": "http://schema.org",
+        "@type": "BlogPosting",
+        "headline": "mysql千万级数据分表迁移方案",
+        "inLanguage": "zh-CN",
+        "mainEntityOfPage": {
+            "@type": "WebPage",
+            "@id": "https:\/\/jordanzheng.github.io\/mysql-sharding\/"
+        },"image": ["https:\/\/jordanzheng.github.io\/images\/Apple-Devices-Preview.png"],"genre": "posts","keywords": "数据库, mysql, 分库分表","wordcount":  4046 ,
+        "url": "https:\/\/jordanzheng.github.io\/mysql-sharding\/","datePublished": "2019-09-14T21:49:00+00:00","dateModified": "2024-05-08T18:04:47+08:00","license": "This work is licensed under a Creative Commons Attribution-NonCommercial 4.0 International License.","publisher": {
+            "@type": "Organization",
+            "name": "xxxx","logo": "https:\/\/jordanzheng.github.io\/images\/avatar.png"},"author": {
+                "@type": "Person",
+                "name": "saul"
+            },"description": ""
+    }
+    </script></head>
+    <body data-header-desktop="fixed" data-header-mobile="auto"><script type="text/javascript">(window.localStorage && localStorage.getItem('theme') ? localStorage.getItem('theme') === 'dark' : ('auto' === 'auto' ? window.matchMedia('(prefers-color-scheme: dark)').matches : 'auto' === 'dark')) && document.body.setAttribute('theme', 'dark');</script>
+
+        <div id="mask"></div><div class="wrapper"><header class="desktop" id="header-desktop">
+    <div class="header-wrapper">
+        <div class="header-title">
+            <a href="/" title="Saul&#39;s blog"><span class="header-title-pre"><i class='far fa-kiss-wink-heart fa-fw' aria-hidden='true'></i></span>Saul&#39;s blog</a>
+        </div>
+        <div class="menu">
+            <div class="menu-inner"><a class="menu-item" href="/posts/"> 所有文章 </a><a class="menu-item" href="/tags/"> 标签 </a><a class="menu-item" href="/categories/"> 分类 </a><a class="menu-item" href="/about/"> 关于 </a><a class="menu-item" href="https://github.com/Jordanzheng" title="GitHub" rel="noopener noreffer" target="_blank"><i class='fab fa-github fa-fw' aria-hidden='true'></i>  </a><span class="menu-item delimiter"></span><span class="menu-item search" id="search-desktop">
+                        <input type="text" placeholder="搜索文章标题或内容..." id="search-input-desktop">
+                        <a href="javascript:void(0);" class="search-button search-toggle" id="search-toggle-desktop" title="搜索">
+                            <i class="fas fa-search fa-fw" aria-hidden="true"></i>
+                        </a>
+                        <a href="javascript:void(0);" class="search-button search-clear" id="search-clear-desktop" title="清空">
+                            <i class="fas fa-times-circle fa-fw" aria-hidden="true"></i>
+                        </a>
+                        <span class="search-button search-loading" id="search-loading-desktop">
+                            <i class="fas fa-spinner fa-fw fa-spin" aria-hidden="true"></i>
+                        </span>
+                    </span><a href="javascript:void(0);" class="menu-item theme-switch" title="切换主题">
+                    <i class="fas fa-adjust fa-fw" aria-hidden="true"></i>
+                </a><a href="javascript:void(0);" class="menu-item language" title="选择语言">
+                    <i class="fa fa-globe" aria-hidden="true"></i>                      
+                    <select class="language-select" id="language-select-desktop" onchange="location = this.value;"><option value="/mysql-sharding/" selected>简体中文</option></select>
+                </a></div>
+        </div>
+    </div>
+</header><header class="mobile" id="header-mobile">
+    <div class="header-container">
+        <div class="header-wrapper">
+            <div class="header-title">
+                <a href="/" title="Saul&#39;s blog"><span class="header-title-pre"><i class='far fa-kiss-wink-heart fa-fw' aria-hidden='true'></i></span>Saul&#39;s blog</a>
+            </div>
+            <div class="menu-toggle" id="menu-toggle-mobile">
+                <span></span><span></span><span></span>
+            </div>
+        </div>
+        <div class="menu" id="menu-mobile"><div class="search-wrapper">
+                    <div class="search mobile" id="search-mobile">
+                        <input type="text" placeholder="搜索文章标题或内容..." id="search-input-mobile">
+                        <a href="javascript:void(0);" class="search-button search-toggle" id="search-toggle-mobile" title="搜索">
+                            <i class="fas fa-search fa-fw" aria-hidden="true"></i>
+                        </a>
+                        <a href="javascript:void(0);" class="search-button search-clear" id="search-clear-mobile" title="清空">
+                            <i class="fas fa-times-circle fa-fw" aria-hidden="true"></i>
+                        </a>
+                        <span class="search-button search-loading" id="search-loading-mobile">
+                            <i class="fas fa-spinner fa-fw fa-spin" aria-hidden="true"></i>
+                        </span>
+                    </div>
+                    <a href="javascript:void(0);" class="search-cancel" id="search-cancel-mobile">
+                        取消
+                    </a>
+                </div><a class="menu-item" href="/posts/" title="">所有文章</a><a class="menu-item" href="/tags/" title="">标签</a><a class="menu-item" href="/categories/" title="">分类</a><a class="menu-item" href="/about/" title="">关于</a><a class="menu-item" href="https://github.com/Jordanzheng" title="GitHub" rel="noopener noreffer" target="_blank"><i class='fab fa-github fa-fw' aria-hidden='true'></i></a><a href="javascript:void(0);" class="menu-item theme-switch" title="切换主题">
+                <i class="fas fa-adjust fa-fw" aria-hidden="true"></i>
+            </a><a href="javascript:void(0);" class="menu-item" title="选择语言">
+                    <i class="fa fa-globe fa-fw" aria-hidden="true"></i>
+                    <select class="language-select" onchange="location = this.value;"><option value="/mysql-sharding/" selected>简体中文</option></select>
+                </a></div>
+    </div>
+</header><div class="search-dropdown desktop">
+        <div id="search-dropdown-desktop"></div>
+    </div>
+    <div class="search-dropdown mobile">
+        <div id="search-dropdown-mobile"></div>
+    </div><main class="main">
+                <div class="container"><div class="toc" id="toc-auto">
+            <h2 class="toc-title">目录</h2>
+            <div class="toc-content" id="toc-content-auto"></div>
+        </div><article class="page single"><h1 class="single-title animate__animated animate__flipInX">mysql千万级数据分表迁移方案</h1><div class="post-meta">
+            <div class="post-meta-line"><span class="post-author"><a href="/" title="Author" rel="author" class="author"><i class="fas fa-user-circle fa-fw" aria-hidden="true"></i>saul</a></span>&nbsp;<span class="post-category">收录于 <a href="/categories/%E7%BB%8F%E9%AA%8C%E6%80%BB%E7%BB%93/"><i class="far fa-folder fa-fw" aria-hidden="true"></i>经验总结</a></span></div>
+            <div class="post-meta-line"><i class="far fa-calendar-alt fa-fw" aria-hidden="true"></i>&nbsp;<time datetime="2019-09-14">2019-09-14</time>&nbsp;<i class="fas fa-pencil-alt fa-fw" aria-hidden="true"></i>&nbsp;约 4046 字&nbsp;
+                <i class="far fa-clock fa-fw" aria-hidden="true"></i>&nbsp;预计阅读 9 分钟&nbsp;<span id="/mysql-sharding/" class="leancloud_visitors" data-flag-title="mysql千万级数据分表迁移方案">
+                        <i class="far fa-eye fa-fw" aria-hidden="true"></i>&nbsp;<span class=leancloud-visitors-count></span>&nbsp;次阅读
+                    </span>&nbsp;</div>
+        </div><div class="details toc" id="toc-static"  data-kept="">
+                <div class="details-summary toc-title">
+                    <span>目录</span>
+                    <span><i class="details-icon fas fa-angle-right" aria-hidden="true"></i></span>
+                </div>
+                <div class="details-content toc-content" id="toc-content-static"><nav id="TableOfContents">
+  <ul>
+    <li><a href="#1数据表怎么切分">1、数据表怎么切分</a></li>
+    <li><a href="#2数据怎么迁移">2、数据怎么迁移</a>
+      <ul>
+        <li><a href="#1-停机方案">1） 停机方案</a></li>
+        <li><a href="#2-平滑迁移--追日志法">2) 平滑迁移&ndash;追日志法</a></li>
+        <li><a href="#3平滑迁移--双写法">3）平滑迁移&ndash;双写法</a></li>
+      </ul>
+    </li>
+    <li><a href="#3怎么保证数据一致性">3、怎么保证数据一致性</a></li>
+    <li><a href="#4怎么保证不影响线上服务">4、怎么保证不影响线上服务</a>
+      <ul>
+        <li><a href="#1上线数据库新老表双写">1）上线数据库新老表双写</a></li>
+        <li><a href="#2上线数据同步保证数据库新老表数据一致">2）上线数据同步，保证数据库新老表数据一致</a></li>
+        <li><a href="#3上线切换使用新表ckv数据提供新的接口">3）上线切换使用新表、ckv数据，提供新的接口，</a></li>
+      </ul>
+    </li>
+    <li><a href="#5为什么选择这个方案">5、为什么选择这个方案</a></li>
+  </ul>
+</nav></div>
+            </div><div class="content" id="content"><h1 id="前言">前言</h1>
+<p>最近抽空将前段时间负责重构服务迁移数据的项目总结一下。主要涉及mysql分表、数据迁移等方面。由于分库分表面对的场景很多，具体问题具体分析，还是要依据当时项目的实际情况，选择最合理的方案。</p>
+<!-- more -->
+<h1 id="一项目背景">一、项目背景</h1>
+<p>近来接手负责一个项目，需要重构业务的实名认证系统。当前该实名认证系统随着业务的增长以及红包活动复用实名认证表，用户实名认证表的数据迅速增长。基于下面几点原因，不得不重构系统，数据分表，迁移数据。</p>
+<p>1、由于历史原因，实名认证表是单表，数据量已经达到三千万左右。mysql单表数据量过千万上亿级别就会对服务造成很大的影响。</p>
+<ul>
+<li>数据库备份，如果单表太大，备份时需要大量的磁盘IO和网络IO</li>
+<li>后续很难对该表进行DDL修改</li>
+<li>大表会经常访问与更新，就更有可能出现锁等待。将数据切分，用空间换时间，变相降低访问压力）</li>
+</ul>
+<p>2、该表主键uid之前是32位，为后续可以扩展，升级为64位，同时新增更新时间字段。
+3、当前该服务以及外部服务直接操作数据库表。耦合严重。</p>
+<h1 id="二方案设计">二、方案设计</h1>
+<h2 id="1数据表怎么切分">1、数据表怎么切分</h2>
+<p>数据切分通常分为两种方式：<strong>垂直切分</strong>和<strong>水平切分</strong></p>
+<p>1、<strong>垂直切分</strong>就是根据业务耦合性，将关联度低的不同表存储在不同的数据库。做法与大系统拆分为多个小系统类似，按业务分类进行独立划分。与&quot;微服务治理&quot;的做法相似，每个微服务使用单独的一个数据库。</p>
+<p>2、<strong>水平切分</strong>就是将同一个表按不同的条件分散到多个数据库或多个表中，每个表中只包含一部分数据，从而使得单个表的数据量变小。</p>
+<p>常见的分片规则：</p>
+<p>1、按<strong>时间区间或者id区间</strong>来切分。例如：按日期将不同月甚至是日的数据分散到不同的库中；将userId为1~9999的记录分到第一个库，10000~20000的分到第二个库，以此类推。某种意义上，某些系统中使用的&quot;冷热数据分离&quot;，将一些使用较少的历史数据迁移到其他库中，业务功能上只提供热点数据的查询，也是类似的实践。</p>
+<p><strong>优点：</strong></p>
+<ul>
+<li>单表大小可控</li>
+<li>天然便于水平扩展，后期如果想对整个分片集群扩容时，只需要添加节点即可，无需对其他分片的数据进行迁移</li>
+<li>使用分片字段进行范围查找时，连续分片可快速定位分片进行快速查询，有效避免跨分片查询的问题。</li>
+</ul>
+<p><strong>缺点：</strong></p>
+<ul>
+<li>热点数据成为性能瓶颈。连续分片可能存在数据热点，例如按时间字段分片，有些分片存储最近时间段内的数据，可能会被频繁的读写，而有些分片存储的历史数据，则很少被查询</li>
+</ul>
+<p>2、<strong>根据数值取模</strong>。一般采用hash取模mod的切分方式</p>
+<p><strong>优点：</strong></p>
+<ul>
+<li>数据分片相对比较均匀，不容易出现热点和并发访问的瓶颈</li>
+</ul>
+<p><strong>缺点：</strong></p>
+<ul>
+<li>后期分片集群扩容时，需要迁移旧的数据（使用一致性hash[&ldquo;算法&rdquo;]能较好的避免这个问题）</li>
+<li>容易面临跨分片查询的复杂问题。</li>
+</ul>
+<p>因为实名认证表没有时间维度字段，主键uid同时也是用户唯一id，由账号系统生成。本次数据表切分最后采用<strong>按用户uid维度取模水平切分</strong>。考虑到后续业务的增长，按uid%100取模，切分成100张表，平均每张表的数量不到百万级别，可支持后续上亿的用户数据。</p>
+<p><strong>优点：</strong></p>
+<ul>
+<li>数据均匀分布在100张表中</li>
+<li>每张表的数据量不会太大</li>
+</ul>
+<p><strong>缺点：</strong></p>
+<ul>
+<li>一次性增加100张表</li>
+<li>没法反向关系查询，例如根据手机号查找对应的uid，这个通过在缓存中增加手机号—&gt;uid反向关系解决</li>
+</ul>
+<h2 id="2数据怎么迁移">2、数据怎么迁移</h2>
+<p>互联网很多“数据量较大，并发量较大，业务复杂度较高”的业务场景，例如在（1）底层表结构变更（2）分库个数变换（3）底层存储介质变换的众多需求下，需要进行数据迁移，如何“平滑迁移数据，迁移过程不停机，保证系统持续服务”。</p>
+<p>常见的几种数据迁移方案：</p>
+<h3 id="1-停机方案">1） 停机方案</h3>
+<p><img
+        class="lazyload"
+        src="/svg/loading.min.svg"
+        data-src="/../assets/blogImg/stop.png"
+        data-srcset="/../assets/blogImg/stop.png, /../assets/blogImg/stop.png 1.5x, /../assets/blogImg/stop.png 2x"
+        data-sizes="auto"
+        alt="/../assets/blogImg/stop.png"
+        title="停机方案" width="883" height="368" /></p>
+<p>优点：停机方案是相对直观和简单的，但对服务的可用性有影响，许多游戏公司的服务器升级，游戏分区与合区，可能会采用类似的方案</p>
+<p>缺点：1、影响服务可用性；2、指定时间内升级 ；3、容错性低，一旦规定时间内升级失败，只能回滚。</p>
+<h3 id="2-平滑迁移--追日志法">2) 平滑迁移&ndash;追日志法</h3>
+<p><img
+        class="lazyload"
+        src="/svg/loading.min.svg"
+        data-src="/../assets/blogImg/log.png"
+        data-srcset="/../assets/blogImg/log.png, /../assets/blogImg/log.png 1.5x, /../assets/blogImg/log.png 2x"
+        data-sizes="auto"
+        alt="/../assets/blogImg/log.png"
+        title="追日志法" width="892" height="385" />
+步骤一：服务进行升级，记录“对旧库上的数据修改”的日志，该日志只需记录关键信息
+步骤二：研发一个数据迁移工具，进行数据迁移
+步骤三：研发一个读取日志并迁移数据的小工具，要把步骤二迁移数据过程中产生的差异数据追平
+步骤四：在持续重放日志，追平数据的过程中，研发一个数据校验的小工具，将旧库和新库中的数据进行比对，直到数据完全一致。
+数据一直是99.9%的一致，不能完全一致，也是正常的，可以做一个秒级的旧库readonly，等日志重放程序完全追上数据后，再进行切库切流量。</p>
+<h3 id="3平滑迁移--双写法">3）平滑迁移&ndash;双写法</h3>
+<p><img
+        class="lazyload"
+        src="/svg/loading.min.svg"
+        data-src="/../assets/blogImg/double_write.png"
+        data-srcset="/../assets/blogImg/double_write.png, /../assets/blogImg/double_write.png 1.5x, /../assets/blogImg/double_write.png 2x"
+        data-sizes="auto"
+        alt="/../assets/blogImg/double_write.png"
+        title="数据库双写法" width="866" height="377" /></p>
+<p>步骤一：服务进行升级，对“对旧库上的数据修改”（这里的修改，为数据的insert, delete, update），在新库上进行相同的修改操作
+步骤二：研发一个数据迁移工具，进行数据迁移
+步骤三：在数据迁移完成之后，需要使用数据校验的小工具，将旧库和新库中的数据进行比对，完全一致则符合预期，如果出现步骤二中的极限不一致情况，则以旧库中的数据为准。
+步骤四：数据完全一致之后，将流量切到新库，完成平滑数据迁移。</p>
+<p><img
+        class="lazyload"
+        src="/svg/loading.min.svg"
+        data-src="/../assets/blogImg/migrate-tool.png"
+        data-srcset="/../assets/blogImg/migrate-tool.png, /../assets/blogImg/migrate-tool.png 1.5x, /../assets/blogImg/migrate-tool.png 2x"
+        data-sizes="auto"
+        alt="/../assets/blogImg/migrate-tool.png"
+        title="双写法-数据校验" width="480" height="400" /></p>
+<p>（1）假设迁移过程中进行了一个双insert操作，旧库新库都插入了数据，数据一致性没有被破坏</p>
+<p>（2）假设迁移过程中进行了一个双delete操作，这又分为两种情况：</p>
+<p>​	（2.1）假设这delete的数据属于[min,now]范围，即已经完成迁移，则旧库新库都删除了数据，数据一致性没有被破坏。</p>
+<p>​       （2.2）假设这delete的数据属于[now,max]范围，即未完成迁移，则旧库中删除操作的affect rows为1，新库中删除操作的affect rows为0，但是数据迁移工具在后续数据迁移中，并不会将这条旧库中被删除的数据迁移到新库中，所以数据一致性仍没有被破坏</p>
+<p>（3）假设迁移过程中进行了一个双update操作，可以认为update操作是一个delete加一个insert操作的复合操作，所以数据仍然是一致的</p>
+<p>除非在一种非常非常非常极限的情况下：</p>
+<p>（1）date-migrate-tool<strong>刚好</strong>从旧库中将某一条数据X取出</p>
+<p>（2）在X插入到新库中之前，旧库与新库中<strong>刚好</strong>对X进行了双delete操作</p>
+<p>（3）date-migrate-tool再将X插入到新库中</p>
+<p>这样，会出现新库比旧库多出一条数据X。</p>
+<p>不管怎样，数据迁移完成之后，在数据迁移完成之后，需要使用数据校验的小工具，将旧库和新库中的数据进行比对，完全一致则符合预期，如果出现步骤二中的极限不一致情况，则以旧库中的数据为准。</p>
+<p>此次重构项目中数据分两步迁移完成，数据从老表迁移到新表中。  <strong>在数据校验一致之前，所有的数据均以老表中的数据为准</strong> 。
+因为认证信息表中无法以时间维度来迁移数据，只能通过主键uid导出老表中的数据，然后迁移到新表中。因为数据量接近3000万，所以采用mysql提供的LOAD DATA INFILE导入文件的形式导入数据，这样可大大缩短数据导入时间。LOAD DATA INFILE 语句以很高的速度从一个文本文件中读取行到一个表中。
+1、迁移存量数据
+为了保证不影响现网服务，读取老表的数据将从从库中读取。为了合理控制迁移数据的时长，并发的select老表的数据，在测试环境测试，迁移3000万的数据大概耗时1小时。</p>
+<p>2、迁移增量数据
+增量数据通过后面数据校验工具对比完成</p>
+<h2 id="3怎么保证数据一致性">3、怎么保证数据一致性</h2>
+<p>以 <strong>数据双写服务上线的时间</strong> 为分割点，分割点之前数据的一致性由数据迁移脚本来保证；分割点以后的数据一致性由新老表双写来保证；当然这些数据的一致性都会有检验机制。</p>
+<p>1、对于数据迁移脚本迁移的数据一致性校验：数据根据uid取模从老表中分别存到100个文本文件中，当数据导入到每张新表后，直接再拉取新表数据到文本中，然后分别校验100个新老文件的MD5值，若都相同，则存量数据一致性没问题。</p>
+<p>2、对于数据库双写保证数据一致性校验：在老表执行成功后才会旁路发hippo（公司内部的消息队列组件）操作新表，hippo消息队列做消息的可靠性保证，新表操作如果失败通过monitor上报告警、error日志记录来保证一致性，如果没有告警和error日志，则可以认为双写数据的一致性。</p>
+<p>3、数据校验工具校验一致性：当存量数据导入新库之后，这是就通过数据校验工具比对新老库数据的一致性。为了不影响现网服务，数据校验比对拉的是老表的从库。当所有数据多次都比对一致后，此时新老库的数据就完全一致。</p>
+<h2 id="4怎么保证不影响线上服务">4、怎么保证不影响线上服务</h2>
+<p>为了不影响实名认证系统及周边业务方的线上服务，此次重构系统分三次迭代上线：</p>
+<h3 id="1上线数据库新老表双写">1）上线数据库新老表双写</h3>
+<p>迭代一主要保证新老表数据双写。实名认证老服务在原来写老表操作的地方，旁路一份数据到消息队列中，由新服务消费这个消息队列的消息写入到新表，同时也缓存一份数据到ckv（公司的缓存组件），并且存储由于分表导致无法反向查询手机号-&gt;uid的反向关系。旁路消息，异步处理这样不影响到原来的业务流程。</p>
+<h3 id="2上线数据同步保证数据库新老表数据一致">2）上线数据同步，保证数据库新老表数据一致</h3>
+<p>迭代二主要是上线数据同步服务，将老表的存量数据迁移到新表中，并且通过数据校验服务比对新老表数据的一致性。这个过程中，实名认证和业务方仍然使用老表。</p>
+<h3 id="3上线切换使用新表ckv数据提供新的接口">3）上线切换使用新表、ckv数据，提供新的接口，</h3>
+<p>迭代三上线切换使用新表，读接口使用ckv缓存数据，写接口先更新数据库再更新缓存，同时也会旁路消息更新老表，老表作为备份。迭代三过程中排查业务方的影响，将分表项目知会到业务方，业务方配合修改自己的逻辑。原有直接访问数据库表的调用一律切换成接口调用。严格控制上线步骤，不影响现网服务。</p>
+<h2 id="5为什么选择这个方案">5、为什么选择这个方案</h2>
+<p>方案初期也考虑了几种方案：</p>
+<p>1、引入开源的数据库中间件如mycat、sharding-sphere等。但是引入第三方组件，增加系统复杂度，后续升级发布麻烦，mycat还需额外单独部署机器，增加运维成本。</p>
+<p>2、停服迁移数据方案。该方案要停机，这样会影响到用户使用。</p>
+<p>综上，最终选择不引入第三方组件，数据双写不停服的方案。</p>
+<h1 id="三参考文章">三、参考文章</h1>
+<p>1、<a href="https://www.w3cschool.cn/architectroad/architectroad-data-smooth-migration.html" target="_blank" rel="noopener noreffer ">100亿数据平滑数据迁移,不影响服务</a></p>
+<p>2、<a href="https://www.cnblogs.com/butterfly100/p/9034281.html" target="_blank" rel="noopener noreffer ">数据库分库分表思路</a></p>
+<p>3、<a href="https://hanchao.blog.csdn.net/article/details/87093352" target="_blank" rel="noopener noreffer ">记一次分库分表——改造策略总结</a></p>
+</div><div class="post-footer" id="post-footer">
+    <div class="post-info">
+        <div class="post-info-line">
+            <div class="post-info-mod">
+                <span>更新于 2024-05-08&nbsp;<a class="git-hash" href="https://github.com/dillonzq/LoveIt/commit/8dccd1164f6da14d0e438c9150b8bf409cb46d4f" target="_blank" title="commit by Jordanzheng(saulhadis@gmail.com) 8dccd1164f6da14d0e438c9150b8bf409cb46d4f: master: 迁移旧blog的图片">
+                                    <i class="fas fa-hashtag fa-fw" aria-hidden="true"></i>8dccd11</a></span>
+            </div></div>
+        <div class="post-info-line">
+            <div class="post-info-md"><span>
+                            <a class="link-to-markdown" href="/mysql-sharding/index.md" target="_blank">阅读原始文档</a>
+                        </span></div>
+            <div class="post-info-share">
+                <span><a href="javascript:void(0);" title="分享到 Twitter" data-sharer="twitter" data-url="https://jordanzheng.github.io/mysql-sharding/" data-title="mysql千万级数据分表迁移方案" data-hashtags="数据库,mysql,分库分表"><i class="fab fa-twitter fa-fw" aria-hidden="true"></i></a><a href="javascript:void(0);" title="分享到 Hacker News" data-sharer="hackernews" data-url="https://jordanzheng.github.io/mysql-sharding/" data-title="mysql千万级数据分表迁移方案"><i class="fab fa-hacker-news fa-fw" aria-hidden="true"></i></a><a href="javascript:void(0);" title="分享到 微博" data-sharer="weibo" data-url="https://jordanzheng.github.io/mysql-sharding/" data-title="mysql千万级数据分表迁移方案" data-ralateuid="xxxx"><i class="fab fa-weibo fa-fw" aria-hidden="true"></i></a></span>
+            </div>
+        </div>
+    </div>
+
+    <div class="post-info-more">
+        <section class="post-tags"><i class="fas fa-tags fa-fw" aria-hidden="true"></i>&nbsp;<a href="/tags/%E6%95%B0%E6%8D%AE%E5%BA%93/">数据库</a>,&nbsp;<a href="/tags/mysql/">Mysql</a>,&nbsp;<a href="/tags/%E5%88%86%E5%BA%93%E5%88%86%E8%A1%A8/">分库分表</a></section>
+        <section>
+            <span><a href="javascript:void(0);" onclick="window.history.back();">返回</a></span>&nbsp;|&nbsp;<span><a href="/">主页</a></span>
+        </section>
+    </div>
+
+    <div class="post-nav"><a href="/batch-create-table-mysql/" class="prev" rel="prev" title="mysql批量创建表"><i class="fas fa-angle-left fa-fw" aria-hidden="true"></i>mysql批量创建表</a>
+            <a href="/tes1/" class="next" rel="next" title="Tes1">Tes1<i class="fas fa-angle-right fa-fw" aria-hidden="true"></i></a></div>
+</div>
+<div id="comments"><div id="valine" class="comment"></div><noscript>
+                Please enable JavaScript to view the comments powered by <a href="https://valine.js.org/">Valine</a>.
+            </noscript></div></article></div>
+            </main><footer class="footer">
+        <div class="footer-container"><div class="footer-line">由 <a href="https://gohugo.io/" target="_blank" rel="noopener noreffer" title="Hugo 0.125.6">Hugo</a> 强力驱动 | 主题 - <a href="https://github.com/dillonzq/LoveIt" target="_blank" rel="noopener noreffer" title="LoveIt 0.2.11"><i class="far fa-kiss-wink-heart fa-fw" aria-hidden="true"></i> LoveIt</a>
+                </div><div class="footer-line" itemscope itemtype="http://schema.org/CreativeWork"><i class="far fa-copyright fa-fw" aria-hidden="true"></i><span itemprop="copyrightYear">2016 - 2024</span><span class="author" itemprop="copyrightHolder">&nbsp;<a href="/" target="_blank">saul</a></span>&nbsp;|&nbsp;<span class="license"><a rel="license external nofollow noopener noreffer" href="https://creativecommons.org/licenses/by-nc/4.0/" target="_blank">CC BY-NC 4.0</a></span></div>
+        </div>
+    </footer></div>
+
+        <div id="fixed-buttons"><a href="#" id="back-to-top" class="fixed-button" title="回到顶部">
+                <i class="fas fa-arrow-up fa-fw" aria-hidden="true"></i>
+            </a><a href="#" id="view-comments" class="fixed-button" title="查看评论">
+                <i class="fas fa-comment fa-fw" aria-hidden="true"></i>
+            </a>
+        </div><link rel="stylesheet" href="/lib/valine/valine.min.css"><script type="text/javascript" src="https://cdn.jsdelivr.net/npm/valine@1.5.0/dist/Valine.min.js"></script><script type="text/javascript" src="https://cdn.jsdelivr.net/npm/autocomplete.js@0.38.1/dist/autocomplete.min.js"></script><script type="text/javascript" src="https://cdn.jsdelivr.net/npm/algoliasearch@4.13.1/dist/algoliasearch-lite.umd.min.js"></script><script type="text/javascript" src="https://cdn.jsdelivr.net/npm/lazysizes@5.3.2/lazysizes.min.js"></script><script type="text/javascript" src="https://cdn.jsdelivr.net/npm/clipboard@2.0.11/dist/clipboard.min.js"></script><script type="text/javascript" src="https://cdn.jsdelivr.net/npm/sharer.js@0.5.1/sharer.min.js"></script><script type="text/javascript">window.config={"code":{"copyTitle":"复制到剪贴板","maxShownLines":50},"comment":{"valine":{"appId":"QGzwQXOqs5JOhN4RGPOkR2mR-MdYXbMMI","appKey":"WBmoGyJtbqUswvfLh6L8iEBr","avatar":"mp","el":"#valine","emojiCDN":"https://cdn.jsdelivr.net/npm/emoji-datasource-google@14.0.0/img/google/64/","emojiMaps":{"100":"1f4af.png","alien":"1f47d.png","anger":"1f4a2.png","angry":"1f620.png","anguished":"1f627.png","astonished":"1f632.png","black_heart":"1f5a4.png","blue_heart":"1f499.png","blush":"1f60a.png","bomb":"1f4a3.png","boom":"1f4a5.png","broken_heart":"1f494.png","brown_heart":"1f90e.png","clown_face":"1f921.png","cold_face":"1f976.png","cold_sweat":"1f630.png","confounded":"1f616.png","confused":"1f615.png","cry":"1f622.png","crying_cat_face":"1f63f.png","cupid":"1f498.png","dash":"1f4a8.png","disappointed":"1f61e.png","disappointed_relieved":"1f625.png","dizzy":"1f4ab.png","dizzy_face":"1f635.png","drooling_face":"1f924.png","exploding_head":"1f92f.png","expressionless":"1f611.png","face_vomiting":"1f92e.png","face_with_cowboy_hat":"1f920.png","face_with_hand_over_mouth":"1f92d.png","face_with_head_bandage":"1f915.png","face_with_monocle":"1f9d0.png","face_with_raised_eyebrow":"1f928.png","face_with_rolling_eyes":"1f644.png","face_with_symbols_on_mouth":"1f92c.png","face_with_thermometer":"1f912.png","fearful":"1f628.png","flushed":"1f633.png","frowning":"1f626.png","ghost":"1f47b.png","gift_heart":"1f49d.png","green_heart":"1f49a.png","grimacing":"1f62c.png","grin":"1f601.png","grinning":"1f600.png","hankey":"1f4a9.png","hear_no_evil":"1f649.png","heart":"2764-fe0f.png","heart_decoration":"1f49f.png","heart_eyes":"1f60d.png","heart_eyes_cat":"1f63b.png","heartbeat":"1f493.png","heartpulse":"1f497.png","heavy_heart_exclamation_mark_ornament":"2763-fe0f.png","hole":"1f573-fe0f.png","hot_face":"1f975.png","hugging_face":"1f917.png","hushed":"1f62f.png","imp":"1f47f.png","innocent":"1f607.png","japanese_goblin":"1f47a.png","japanese_ogre":"1f479.png","joy":"1f602.png","joy_cat":"1f639.png","kiss":"1f48b.png","kissing":"1f617.png","kissing_cat":"1f63d.png","kissing_closed_eyes":"1f61a.png","kissing_heart":"1f618.png","kissing_smiling_eyes":"1f619.png","laughing":"1f606.png","left_speech_bubble":"1f5e8-fe0f.png","love_letter":"1f48c.png","lying_face":"1f925.png","mask":"1f637.png","money_mouth_face":"1f911.png","nauseated_face":"1f922.png","nerd_face":"1f913.png","neutral_face":"1f610.png","no_mouth":"1f636.png","open_mouth":"1f62e.png","orange_heart":"1f9e1.png","partying_face":"1f973.png","pensive":"1f614.png","persevere":"1f623.png","pleading_face":"1f97a.png","pouting_cat":"1f63e.png","purple_heart":"1f49c.png","rage":"1f621.png","relaxed":"263a-fe0f.png","relieved":"1f60c.png","revolving_hearts":"1f49e.png","right_anger_bubble":"1f5ef-fe0f.png","robot_face":"1f916.png","rolling_on_the_floor_laughing":"1f923.png","scream":"1f631.png","scream_cat":"1f640.png","see_no_evil":"1f648.png","shushing_face":"1f92b.png","skull":"1f480.png","skull_and_crossbones":"2620-fe0f.png","sleeping":"1f634.png","sleepy":"1f62a.png","slightly_frowning_face":"1f641.png","slightly_smiling_face":"1f642.png","smile":"1f604.png","smile_cat":"1f638.png","smiley":"1f603.png","smiley_cat":"1f63a.png","smiling_face_with_3_hearts":"1f970.png","smiling_imp":"1f608.png","smirk":"1f60f.png","smirk_cat":"1f63c.png","sneezing_face":"1f927.png","sob":"1f62d.png","space_invader":"1f47e.png","sparkling_heart":"1f496.png","speak_no_evil":"1f64a.png","speech_balloon":"1f4ac.png","star-struck":"1f929.png","stuck_out_tongue":"1f61b.png","stuck_out_tongue_closed_eyes":"1f61d.png","stuck_out_tongue_winking_eye":"1f61c.png","sunglasses":"1f60e.png","sweat":"1f613.png","sweat_drops":"1f4a6.png","sweat_smile":"1f605.png","thinking_face":"1f914.png","thought_balloon":"1f4ad.png","tired_face":"1f62b.png","triumph":"1f624.png","two_hearts":"1f495.png","unamused":"1f612.png","upside_down_face":"1f643.png","weary":"1f629.png","white_frowning_face":"2639-fe0f.png","white_heart":"1f90d.png","wink":"1f609.png","woozy_face":"1f974.png","worried":"1f61f.png","yawning_face":"1f971.png","yellow_heart":"1f49b.png","yum":"1f60b.png","zany_face":"1f92a.png","zipper_mouth_face":"1f910.png","zzz":"1f4a4.png"},"enableQQ":false,"highlight":true,"lang":"zh-CN","pageSize":10,"placeholder":"你的评论 ...","recordIP":true,"serverURLs":"https://leancloud.hugoloveit.com","visitor":true}},"search":{"algoliaAppID":"CXA3BUV2HR","algoliaIndex":"blog","algoliaSearchKey":"a99366a402b9cd2ab556ca28fecb4749","highlightTag":"em","maxResultLength":10,"noResultsFound":"没有找到结果","snippetLength":50,"type":"algolia"}};</script><script type="text/javascript" src="/js/theme.min.js"></script></body>
+</html>

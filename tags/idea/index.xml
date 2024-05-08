@@ -1,0 +1,87 @@
+<rss xmlns:atom="http://www.w3.org/2005/Atom" version="2.0">
+    <channel>
+        <title>Idea - 标签 - Saul&#39;s blog</title>
+        <link>https://jordanzheng.github.io/tags/idea/</link>
+        <description>Idea - 标签 - Saul&#39;s blog</description>
+        <generator>Hugo -- gohugo.io</generator><language>zh-CN</language><managingEditor>saulhadis@gmail.com (saul)</managingEditor>
+            <webMaster>saulhadis@gmail.com (saul)</webMaster><copyright>This work is licensed under a Creative Commons Attribution-NonCommercial 4.0 International License.</copyright><lastBuildDate>Mon, 28 Jan 2019 00:49:37 &#43;0000</lastBuildDate><atom:link href="https://jordanzheng.github.io/tags/idea/" rel="self" type="application/rss+xml" /><item>
+    <title>idea中一个窗口引入多个maven project工程</title>
+    <link>https://jordanzheng.github.io/open-multi-module-in-one-project-for-idea/</link>
+    <pubDate>Mon, 28 Jan 2019 00:49:37 &#43;0000</pubDate>
+    <author>saul</author>
+    <guid>https://jordanzheng.github.io/open-multi-module-in-one-project-for-idea/</guid>
+    <description><![CDATA[<p>之前使用eclipse，可以在一个窗口打开多个maven工程。后来换成使用idea，发现idea默认一个窗口打开一个工程project。有时候项目多了，想在一个idea界面打开多个互不相关的maven工程。</p>
+<!-- more -->
+<blockquote>
+<p>在 IntelliJ IDEA 中，没有类似于 Eclipse 工作空间（<code>Workspace</code>）的概念，而是提出了<code>Project</code>和<code>Module</code>这两个概念。  在 IntelliJ IDEA 中Project是最顶级的结构单元，然后就是Module，一个Project可以有多个Module。目前，主流的大型项目结构基本都是多Module的结构，这类项目一般是按功能划分的，比如：user-core-module、user-facade-module和user-hessian-module等等，模块之间彼此可以相互依赖。通过这些Module的命名可以看出，它们都是处于同一个项目中的模块，彼此之间是有着不可分割的业务关系的。</p>
+<p>因此，我们可以大致总结出：一个Project是由一个或多个Module组成，尽量让各模块处于同一项目之中，此时彼此之间具有互相依赖的关联关系。在这里，之所以说“尽量”，是因为 IntelliJ IDEA 的Project是一个没有具备任何编码设置、构建等开发功能的，主要起到一个项目定义、范围约束、规范类型的效果，或许，我们也可以简单地<strong>理解Project就是一个单纯的目录</strong>，只是这个目录在命名上必须有其代表性的意义。在一般情况下，IntelliJ IDEA 是默认单Project单Module的，这时Project和Module合二为一，在没有修改存储路径的时候，显然Project对Module具有强约束作用啦！不过说实话，这里就是将Module的内容放在了Project的目录下，实际上还是Module自己约束自己。</p>
+<p>原文：https://blog.csdn.net/qq_35246620/article/details/65448689</p>
+</blockquote>
+<p>根据上述理解，可以将多个maven工程作为module导入到idea的project中。idea中的project类比eclipse的workspace。idea中的module类比eclipse的project。</p>
+<p>1、open多个maven工程所在的目录</p>
+<p>2、然后选择要添加的module: File-&gt;Project Structure&hellip;-&gt;Modules可以添加Modules</p>
+<p></p>
+<p>3、选择maven工程导入，一路确认，最后就成功在idea一个界面导入多个maven工程</p>
+<p></p>
+<p>这几个maven工程并无相关性，只是为了和eclipse的workspace类比，减少多个工程之间切换idea界面的麻烦。</p>
+]]></description>
+</item>
+<item>
+    <title>在IntelliJ idea中快速打开文件所在的文件夹的解决办法</title>
+    <link>https://jordanzheng.github.io/open-the-folder-in-idea/</link>
+    <pubDate>Sun, 27 Jan 2019 23:22:31 &#43;0000</pubDate>
+    <author>saul</author>
+    <guid>https://jordanzheng.github.io/open-the-folder-in-idea/</guid>
+    <description><![CDATA[<p>1、 打开settings设置</p>
+<p>2、 选择keymap</p>
+<p>3、 如果是window版本的话，搜索show explorer，右键设置快捷键，通常我设置为Alt + e 键；如果是mac版本的话，搜索file path，默认快捷键是option + command + F12，也可以自己重新定义过一个快捷键，例如：option + E 键。</p>
+<p></p>
+<p>到此，就可以通过快捷键快速打开文件所在的文件夹了。</p>
+<p><strong>PS：很多快捷键都可以通过keymap找到，如果没有，也可以通过keymap设置。熟练使用快捷键，远离鼠标，效率UP</strong></p>
+]]></description>
+</item>
+<item>
+    <title>linux可以ping通但是无法ssh登陆的问题</title>
+    <link>https://jordanzheng.github.io/how-to-solve-connection-refused-errors-in-ssh-connection/</link>
+    <pubDate>Mon, 06 Aug 2018 23:47:17 &#43;0000</pubDate>
+    <author>saul</author>
+    <guid>https://jordanzheng.github.io/how-to-solve-connection-refused-errors-in-ssh-connection/</guid>
+    <description><![CDATA[<p>今天在公司遇到一个奇怪的问题，耗费了大半天才解决。特此总结记录一下解决思路与方法，以便后续能为更快定位类似的问题。</p>
+<h3 id="问题现象">问题现象：</h3>
+<p>无法登陆公司小网中的一台虚拟机，该虚拟机有两张网卡，分别配有两个网段的IP。其中一个网段的IP可以ping通，但是无法ssh登陆，显示<strong>ssh: connect to host 192.171.25.101 port 22: Connection refused</strong>，另外一个网段的IP可以ssh登陆。</p>
+<!-- more -->
+<h3 id="问题定位过程">问题定位过程：</h3>
+<p>刚开始定位思路是检查ssh服务是否ok？，检查是否打开防火墙？后来转念一想，这台虚拟机都可以通过另外一个网卡IP登陆，说明ssh服务是正常的。后来上网google一下遇到的现象，有篇<a href="https://askubuntu.com/questions/30080/how-to-solve-connection-refused-errors-in-ssh-connection" target="_blank" rel="noopener noreffer ">英文文章</a>提到可能是IP冲突导致ssh登陆不了。按照提示用<strong>arping</strong>命令检查一下有问题的IP是否冲突，果不其然，真的是冲突了。至此问题原因清楚了。IP冲突导致可以ping通该IP但是无法通过该IP ssh登陆虚拟机。</p>
+<h3 id="问题解决办法">问题解决办法：</h3>
+<h4 id="一检测linux下ip冲突的命令">一、检测linux下IP冲突的命令</h4>
+<p><strong>arping</strong>：在IP冲突的同网段其他linux上执行<strong>arping</strong>命令检测是否有IP冲突。</p>
+<blockquote>
+<p>[root@dev ~]# arping  -I eth0 192.168.9.120</p>
+<p>ARPING 192.168.1.120 from 192.168.9.200 eth0</p>
+<p>Unicast reply from 192.168.9.120 [40:F4:EC:76:79:C2] 3.084ms</p>
+<p>Unicast reply from 192.168.9.120 [50:7B:9D:25:29:59] 0.817ms</p>
+<p>Unicast reply from 192.168.9.120 [50:7B:9D:25:29:59] 0.810ms</p>
+</blockquote>
+<p>如果只检查出一个MAC地址，则表示网内A机器的的IP：192.168.9.120是唯一的</p>
+<p>如果有以上信息即查出两个MAC地址，则表示网内有一台MAC地址为40:F4:EC:76:79:C2的主机IP地址与A机器相同。</p>
+<p>这时可以通过ifconfig命令验证A机器，如下发现：A机器的MAC地址是50:7B:9D:25:29:59 。
+我们可以用局域网扫描软件找到MAC地址为40:F4:EC:76:79:C2的主机，并将其隔离或更换IP地址。</p>
+<p><strong>检验原理</strong>：</p>
+<p>arping命令是以广播地址发送arp packets，以太网内所有的主机都会收到这个arp packets，但是本机收到之后不会Reply任何信息。</p>
+<p>当我们在linux主机端上执行下面的命令时：
+arping 192.168.9.120　　
+会默认使用eth0，向局域网内所有的主机发送一个：
+who has 192.168.9.120的arp request，tell 192.168.9.120 your mac address，</p>
+<p>当这台windows主机端收到这个arp packets后，则会应答：&ldquo;I am 192.168.9.120 , mac是00:25:e4:6a:4b:f4&rdquo;，这样我们会收到mac地址为00:25:e4:6a:4b:f4的windows主机的Reply信息。</p>
+<h4 id="二修改linux主机ip">二、修改linux主机IP</h4>
+<p>修改冲突的IP地址，冲突的网卡是eth0，</p>
+<ol>
+<li>修改/etc/sysconfig/network/ifcfg-eth0 的IP</li>
+<li>重启网络  service sshd restart</li>
+</ol>
+<h3 id="问题引申">问题引申：</h3>
+<p>IP冲突除了出现上述能ping通但是ssh登陆不了的现象之外，还有可能出现一会儿能登陆、一会儿登陆不了，或者登陆的主机名偶尔会变。其原因可能是 <strong>IP地址冲突后，ssh 登录的设备并不是同一个设备，或者意外的不是你想要登录的设备，因此ssh登录时提示用户验证，但提示信息可能不一样（因为设备不一样了）。</strong></p>
+]]></description>
+</item>
+</channel>
+</rss>
