@@ -4,9 +4,18 @@
         <link>https://jordanzheng.github.io/</link>
         <description>Saul&#39;s blog</description>
         <generator>Hugo -- gohugo.io</generator><language>zh-CN</language><managingEditor>saulhadis@gmail.com (saul)</managingEditor>
-            <webMaster>saulhadis@gmail.com (saul)</webMaster><copyright>This work is licensed under a Creative Commons Attribution-NonCommercial 4.0 International License.</copyright><lastBuildDate>Tue, 07 May 2024 20:10:15 &#43;0800</lastBuildDate>
+            <webMaster>saulhadis@gmail.com (saul)</webMaster><copyright>This work is licensed under a Creative Commons Attribution-NonCommercial 4.0 International License.</copyright><lastBuildDate>Wed, 08 May 2024 00:00:00 &#43;0000</lastBuildDate>
             <atom:link href="https://jordanzheng.github.io/index.xml" rel="self" type="application/rss+xml" />
         <item>
+    <title>test-obsidian-blog</title>
+    <link>https://jordanzheng.github.io/test-obsidian-blog/</link>
+    <pubDate>Wed, 08 May 2024 00:00:00 &#43;0000</pubDate>
+    <author>saul</author>
+    <guid>https://jordanzheng.github.io/test-obsidian-blog/</guid>
+    <description><![CDATA[<p>test obsidian blog</p>
+<!-- more -->]]></description>
+</item>
+<item>
     <title>Tes1</title>
     <link>https://jordanzheng.github.io/tes1/</link>
     <pubDate>Tue, 07 May 2024 17:02:04 &#43;0800</pubDate>
@@ -1425,122 +1434,6 @@ bytes to int32: 16909060</p>
 <p></p>
 <p>到此，就可以通过快捷键快速打开文件所在的文件夹了。</p>
 <p><strong>PS：很多快捷键都可以通过keymap找到，如果没有，也可以通过keymap设置。熟练使用快捷键，远离鼠标，效率UP</strong></p>
-]]></description>
-</item>
-<item>
-    <title>LeetCode 206 Reverse Linked List（反转链表)</title>
-    <link>https://jordanzheng.github.io/leetcode-206-reverse-linked-list/</link>
-    <pubDate>Mon, 05 Nov 2018 23:32:39 &#43;0000</pubDate>
-    <author>saul</author>
-    <guid>https://jordanzheng.github.io/leetcode-206-reverse-linked-list/</guid>
-    <description><![CDATA[<hr>
-<p>反转一个单链表。</p>
-<p><strong>示例:</strong></p>
-<div class="highlight"><div class="chroma">
-<table class="lntable"><tr><td class="lntd">
-<pre tabindex="0" class="chroma"><code><span class="lnt">1
-</span><span class="lnt">2
-</span></code></pre></td>
-<td class="lntd">
-<pre tabindex="0" class="chroma"><code class="language-fallback" data-lang="fallback"><span class="line"><span class="cl">输入: 1-&gt;2-&gt;3-&gt;4-&gt;5-&gt;NULL
-</span></span><span class="line"><span class="cl">输出: 5-&gt;4-&gt;3-&gt;2-&gt;1-&gt;NULL
-</span></span></code></pre></td></tr></table>
-</div>
-</div><p><strong>进阶:</strong>
-你可以迭代或递归地反转链表。你能否用两种方法解决这道题？</p>
-<!-- more -->
-<h2 id="解法一迭代法">解法一：迭代法</h2>
-<p>利用一个哑节点，来依次反转节点</p>
-<div class="highlight"><div class="chroma">
-<table class="lntable"><tr><td class="lntd">
-<pre tabindex="0" class="chroma"><code><span class="lnt"> 1
-</span><span class="lnt"> 2
-</span><span class="lnt"> 3
-</span><span class="lnt"> 4
-</span><span class="lnt"> 5
-</span><span class="lnt"> 6
-</span><span class="lnt"> 7
-</span><span class="lnt"> 8
-</span><span class="lnt"> 9
-</span><span class="lnt">10
-</span><span class="lnt">11
-</span><span class="lnt">12
-</span><span class="lnt">13
-</span><span class="lnt">14
-</span><span class="lnt">15
-</span><span class="lnt">16
-</span><span class="lnt">17
-</span><span class="lnt">18
-</span><span class="lnt">19
-</span><span class="lnt">20
-</span><span class="lnt">21
-</span><span class="lnt">22
-</span><span class="lnt">23
-</span></code></pre></td>
-<td class="lntd">
-<pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="cm">/**
-</span></span></span><span class="line"><span class="cl"><span class="cm"> * Definition for singly-linked list.
-</span></span></span><span class="line"><span class="cl"><span class="cm"> * public class ListNode {
-</span></span></span><span class="line"><span class="cl"><span class="cm"> *     int val;
-</span></span></span><span class="line"><span class="cl"><span class="cm"> *     ListNode next;
-</span></span></span><span class="line"><span class="cl"><span class="cm"> *     ListNode(int x) { val = x; }
-</span></span></span><span class="line"><span class="cl"><span class="cm"> * }
-</span></span></span><span class="line"><span class="cl"><span class="cm"> */</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w"></span><span class="kd">class</span> <span class="nc">Solution</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="n">ListNode</span><span class="w"> </span><span class="nf">reverseList</span><span class="p">(</span><span class="n">ListNode</span><span class="w"> </span><span class="n">head</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">if</span><span class="p">(</span><span class="n">head</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="kc">null</span><span class="w"> </span><span class="o">||</span><span class="w"> </span><span class="n">head</span><span class="p">.</span><span class="na">next</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="kc">null</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="k">return</span><span class="w"> </span><span class="n">head</span><span class="p">;</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">ListNode</span><span class="w"> </span><span class="n">dummyNode</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="kc">null</span><span class="p">;</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">while</span><span class="p">(</span><span class="n">head</span><span class="w"> </span><span class="o">!=</span><span class="w"> </span><span class="kc">null</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="n">ListNode</span><span class="w"> </span><span class="n">next</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">head</span><span class="p">.</span><span class="na">next</span><span class="p">;</span><span class="w">    </span><span class="c1">//暂存下一个待遍历节点</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="n">head</span><span class="p">.</span><span class="na">next</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">dummyNode</span><span class="p">;</span><span class="w">		 </span><span class="c1">//当前到的当前节点指向新的链表头</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="n">dummyNode</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">head</span><span class="p">;</span><span class="w">			</span><span class="c1">//更新 新的链表头</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="n">head</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">next</span><span class="p">;</span><span class="w">				</span><span class="c1">//迭代下一个节点</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">return</span><span class="w"> </span><span class="n">dummyNode</span><span class="p">;</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w"></span><span class="p">}</span><span class="w">
-</span></span></span></code></pre></td></tr></table>
-</div>
-</div><h2 id="解法二递归">解法二：递归</h2>
-<p>递归法本质是一种不断分解问题规模的思想，子问题除了规模更小之外，其他和父问题都一样。<strong>递归主要是找到递归公式和终止条件</strong>。</p>
-<blockquote>
-<ol>
-<li>现在需要把A-&gt;B-&gt;C-&gt;D进行反转，</li>
-<li>可以先假设B-&gt;C-&gt;D已经反转好，已经成为了D-&gt;C-&gt;B,那么接下来要做的事情就是将D-&gt;C-&gt;B看成一个整体，让这个整体的next指向A，所以问题转化了反转B-&gt;C-&gt;D。</li>
-<li>那么，可以先假设C-&gt;D已经反转好，已经成为了D-&gt;C,</li>
-<li>那么接下来要做的事情就是将D-&gt;C看成一个整体，让这个整体的next指向B，所以问题转化了反转C-&gt;D。</li>
-<li>那么,可以先假设D(其实是D-&gt;NULL)已经反转好，已经成为了D(其实是head-&gt;D),那么接下来要做的事情就是将D(其实是head-&gt;D)看成一个整体，让这个整体的next指向C，所以问题转化了反转D。</li>
-</ol>
-</blockquote>
-<div class="highlight"><div class="chroma">
-<table class="lntable"><tr><td class="lntd">
-<pre tabindex="0" class="chroma"><code><span class="lnt"> 1
-</span><span class="lnt"> 2
-</span><span class="lnt"> 3
-</span><span class="lnt"> 4
-</span><span class="lnt"> 5
-</span><span class="lnt"> 6
-</span><span class="lnt"> 7
-</span><span class="lnt"> 8
-</span><span class="lnt"> 9
-</span><span class="lnt">10
-</span></code></pre></td>
-<td class="lntd">
-<pre tabindex="0" class="chroma"><code class="language-java" data-lang="java"><span class="line"><span class="cl"><span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="n">ListNode</span><span class="w"> </span><span class="nf">reverseList</span><span class="p">(</span><span class="n">ListNode</span><span class="w"> </span><span class="n">head</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">head</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="kc">null</span><span class="w"> </span><span class="o">||</span><span class="w"> </span><span class="n">head</span><span class="p">.</span><span class="na">next</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="kc">null</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">  </span><span class="c1">//链表为空直接返回，而head.next为空是递归终止条件</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">            </span><span class="k">return</span><span class="w"> </span><span class="n">head</span><span class="p">;</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="p">}</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="c1">//一直循环到链尾，返回的newHead即为旧链表尾部，新的链表头</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">ListNode</span><span class="w"> </span><span class="n">newHead</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">reverseList</span><span class="p">(</span><span class="n">head</span><span class="p">.</span><span class="na">next</span><span class="p">);</span><span class="w"> 
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">head</span><span class="p">.</span><span class="na">next</span><span class="p">.</span><span class="na">next</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">head</span><span class="p">;</span><span class="w">   </span><span class="c1">//翻转链表的指向，形成一个环，例如：由4-&gt;5变成一个环，4指向5，5也指向4</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="n">head</span><span class="p">.</span><span class="na">next</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="kc">null</span><span class="p">;</span><span class="w">         </span><span class="c1">//赋值NULL，将上一步形成的链表环切掉，防止链表错乱</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">        </span><span class="k">return</span><span class="w"> </span><span class="n">newHead</span><span class="p">;</span><span class="w">            </span><span class="c1">//新链表头永远指向的是原链表的链尾</span><span class="w">
-</span></span></span><span class="line"><span class="cl"><span class="w">    </span><span class="p">}</span><span class="w">
-</span></span></span></code></pre></td></tr></table>
-</div>
-</div><p><strong>head.next.next = head</strong> 表示head的下一个节点翻转指向自己head，形成一个环，<strong>head.next = null</strong> 表示切断之前的链接方向，避免环路。</p>
 ]]></description>
 </item>
 </channel>
