@@ -4,7 +4,415 @@
         <link>https://jordanzheng.github.io/categories/%E7%BB%8F%E9%AA%8C%E6%80%BB%E7%BB%93/</link>
         <description>经验总结 - 分类 - Saul&#39;s blog</description>
         <generator>Hugo -- gohugo.io</generator><language>zh-CN</language><managingEditor>saulhadis@gmail.com (saul)</managingEditor>
-            <webMaster>saulhadis@gmail.com (saul)</webMaster><copyright>This work is licensed under a Creative Commons Attribution-NonCommercial 4.0 International License.</copyright><lastBuildDate>Sat, 14 Sep 2019 21:49:00 &#43;0000</lastBuildDate><atom:link href="https://jordanzheng.github.io/categories/%E7%BB%8F%E9%AA%8C%E6%80%BB%E7%BB%93/" rel="self" type="application/rss+xml" /><item>
+            <webMaster>saulhadis@gmail.com (saul)</webMaster><copyright>This work is licensed under a Creative Commons Attribution-NonCommercial 4.0 International License.</copyright><lastBuildDate>Mon, 14 Dec 2020 19:46:04 &#43;0800</lastBuildDate><atom:link href="https://jordanzheng.github.io/categories/%E7%BB%8F%E9%AA%8C%E6%80%BB%E7%BB%93/" rel="self" type="application/rss+xml" /><item>
+    <title>巧用模版导出复杂excel</title>
+    <link>https://jordanzheng.github.io/smart-use-of-templates-to-export-complex-excel/</link>
+    <pubDate>Mon, 14 Dec 2020 19:46:04 &#43;0800</pubDate>
+    <author>saul</author>
+    <guid>https://jordanzheng.github.io/smart-use-of-templates-to-export-complex-excel/</guid>
+    <description><![CDATA[<p>本文主要介绍总结用golang、模版实现导出复杂excel表格</p>
+<h2 id="背景">背景</h2>
+<p>由于东南亚业务的特殊情况，在供应链的业务系统中，经常需要支持业务数据的excel导出。因为供应链业务数据复杂、数据量大，业务方经常希望开发能够支持生成样式定制、多个sheet、展示图表的excel，便于用户查看excel数据。</p>
+<h2 id="方案分析">方案分析</h2>
+<p>对于简单的excel生成导出，绝大部分语言都提供了方便的类库API操作。类似于python的<strong>xlutils</strong>、<strong>xlsxwriter</strong>等，go里的 <a href="https://github.com/tealeg/xlsx" target="_blank" rel="noopener noreffer ">tealeg/xlsx</a> 、<a href="https://github.com/360EntSecGroup-Skylar/excelize" target="_blank" rel="noopener noreffer ">excelize</a> 等。</p>
+<p>那么对于复杂的excel生成导出，如果不用api操作的话，是否还有别的方法实现呢？</p>
+<p>在此之前，需要了解 Excel xlsx 格式的文件结构，Excel 文件使用 OOXML（Open Office XML）文件格式，这是微软为 Office 2007 产品开发的技术规范，一个开放文档格式标准。Excel 以熟悉的 XML 为存储语言，了解内部结构有助于对 xlsx 进行深度定制，下图是一个较为全面的 Excel 元素集合。</p>
+<p></p>
+<p>xlsx 文件实际上是一个压缩的 XML 文件集合，包含元数据、媒体和图片等文件，开发者可以方便地查看和编辑 Excel 工作簿的结构内容，我们把它看做 zip 压缩包，通过 <code>unzip</code> 命令解压得到如下内容：</p>
+<div class="highlight"><div class="chroma">
+<table class="lntable"><tr><td class="lntd">
+<pre tabindex="0" class="chroma"><code><span class="lnt"> 1
+</span><span class="lnt"> 2
+</span><span class="lnt"> 3
+</span><span class="lnt"> 4
+</span><span class="lnt"> 5
+</span><span class="lnt"> 6
+</span><span class="lnt"> 7
+</span><span class="lnt"> 8
+</span><span class="lnt"> 9
+</span><span class="lnt">10
+</span><span class="lnt">11
+</span><span class="lnt">12
+</span><span class="lnt">13
+</span><span class="lnt">14
+</span><span class="lnt">15
+</span><span class="lnt">16
+</span><span class="lnt">17
+</span><span class="lnt">18
+</span><span class="lnt">19
+</span></code></pre></td>
+<td class="lntd">
+<pre tabindex="0" class="chroma"><code class="language-fallback" data-lang="fallback"><span class="line"><span class="cl">Archive:  template.xlsx
+</span></span><span class="line"><span class="cl"> ----------------------------------------------
+</span></span><span class="line"><span class="cl">├── [Content_Types].xml -------- 内容类型
+</span></span><span class="line"><span class="cl">├── _rels
+</span></span><span class="line"><span class="cl">│   └── .rels ----------------- 关系配置
+</span></span><span class="line"><span class="cl">├── docProps
+</span></span><span class="line"><span class="cl">│   ├── app.xml --------------- 扩展属性
+</span></span><span class="line"><span class="cl">│   └── core.xml -------------- 核心属性
+</span></span><span class="line"><span class="cl">└── xl ------------------------- Excel 实际内容
+</span></span><span class="line"><span class="cl">    ├── _rels
+</span></span><span class="line"><span class="cl">    │   └── workbook.xml.rels
+</span></span><span class="line"><span class="cl">    ├── sharedStrings.xml ------ 内容数据库
+</span></span><span class="line"><span class="cl">    ├── styles.xml ------------- 单元格样式
+</span></span><span class="line"><span class="cl">    ├── theme
+</span></span><span class="line"><span class="cl">    │   └── theme1.xml -------- 主题样式
+</span></span><span class="line"><span class="cl">    ├── workbook.xml ----------- 工作表
+</span></span><span class="line"><span class="cl">    └── worksheets
+</span></span><span class="line"><span class="cl">        ├── sheet1.xml --------- 第一个工作表
+</span></span><span class="line"><span class="cl">        └── sheet2.xml --------- 第二个工作表
+</span></span></code></pre></td></tr></table>
+</div>
+</div><p>所以从xlsx的结构看，我们可以通过模版替换生成来生成复杂的excel。</p>
+<h2 id="实现思路">实现思路</h2>
+<p><strong>基于模版生成导出excel</strong>。根据xlsx的结构看，理论上可以通过定义xlsx的模版，渲染业务数据，就能生成业务excel。</p>
+<h3 id="python实现方法">python实现方法</h3>
+<p>python的实现思路是先定义好xml模版，提取对应的sheet.xml，然后通过django template模块渲染替换，生成导出excel表格。</p>
+<p>Microsoft提供了文档说明如何定义excel 的xml模版去创建excel表格，详细文档：<a href="https://docs.microsoft.com/en-us/archive/blogs/brian_jones/introduction-to-excel-xml-part-1-creating-a-simple-table" target="_blank" rel="noopener noreffer ">generate_excel_xml</a> ，下面简解释下xml模版的基本要素。</p>
+<h4 id="1xml模版">1、xml模版</h4>
+<ul>
+<li>XML声明
+<ul>
+<li>XML 1.0 版本，根元素&lt;Workbook&gt;</li>
+</ul>
+</li>
+<li>声明namespace和前缀
+<ul>
+<li>&lt;ss:Workbook xmlns:ss=&ldquo;urn:schemas-microsoft-com office:spreadsheet&rdquo;&gt;</li>
+</ul>
+</li>
+<li>添加sheet和table
+<ul>
+<li>&lt;Worksheet&gt; 和 &lt;Table&gt;</li>
+</ul>
+</li>
+<li>添加header信息和固定数据信息
+<ul>
+<li>&lt;Row&gt; &lt;Cell&gt; &lt;Data&gt;</li>
+</ul>
+</li>
+<li>样式调整
+<ul>
+<li>&lt;Styles&gt; 配置</li>
+</ul>
+</li>
+<li>动态传入数据
+<ul>
+<li>XSLT或者Django template传入</li>
+</ul>
+</li>
+</ul>
+<p>xml样例</p>
+<div class="highlight"><div class="chroma">
+<table class="lntable"><tr><td class="lntd">
+<pre tabindex="0" class="chroma"><code><span class="lnt"> 1
+</span><span class="lnt"> 2
+</span><span class="lnt"> 3
+</span><span class="lnt"> 4
+</span><span class="lnt"> 5
+</span><span class="lnt"> 6
+</span><span class="lnt"> 7
+</span><span class="lnt"> 8
+</span><span class="lnt"> 9
+</span><span class="lnt">10
+</span><span class="lnt">11
+</span><span class="lnt">12
+</span><span class="lnt">13
+</span><span class="lnt">14
+</span><span class="lnt">15
+</span><span class="lnt">16
+</span><span class="lnt">17
+</span><span class="lnt">18
+</span><span class="lnt">19
+</span><span class="lnt">20
+</span><span class="lnt">21
+</span><span class="lnt">22
+</span><span class="lnt">23
+</span><span class="lnt">24
+</span><span class="lnt">25
+</span><span class="lnt">26
+</span><span class="lnt">27
+</span><span class="lnt">28
+</span><span class="lnt">29
+</span><span class="lnt">30
+</span><span class="lnt">31
+</span><span class="lnt">32
+</span><span class="lnt">33
+</span><span class="lnt">34
+</span><span class="lnt">35
+</span><span class="lnt">36
+</span><span class="lnt">37
+</span><span class="lnt">38
+</span><span class="lnt">39
+</span><span class="lnt">40
+</span><span class="lnt">41
+</span><span class="lnt">42
+</span><span class="lnt">43
+</span><span class="lnt">44
+</span><span class="lnt">45
+</span><span class="lnt">46
+</span><span class="lnt">47
+</span><span class="lnt">48
+</span><span class="lnt">49
+</span><span class="lnt">50
+</span><span class="lnt">51
+</span><span class="lnt">52
+</span><span class="lnt">53
+</span><span class="lnt">54
+</span><span class="lnt">55
+</span><span class="lnt">56
+</span><span class="lnt">57
+</span><span class="lnt">58
+</span><span class="lnt">59
+</span><span class="lnt">60
+</span><span class="lnt">61
+</span><span class="lnt">62
+</span><span class="lnt">63
+</span><span class="lnt">64
+</span><span class="lnt">65
+</span><span class="lnt">66
+</span><span class="lnt">67
+</span><span class="lnt">68
+</span><span class="lnt">69
+</span></code></pre></td>
+<td class="lntd">
+<pre tabindex="0" class="chroma"><code class="language-xml" data-lang="xml"><span class="line"><span class="cl"><span class="cp">&lt;?xml version=&#34;1.0&#34;?&gt;</span>
+</span></span><span class="line"><span class="cl">{% load extract_stats %}
+</span></span><span class="line"><span class="cl"><span class="c">&lt;!--
+</span></span></span><span class="line"><span class="cl"><span class="c">    For full Microsoft Office xml spreadsheet, please visit:
+</span></span></span><span class="line"><span class="cl"><span class="c">    https://docs.microsoft.com/en-us/previous-versions/office/developer/office-xp/aa140066(v=office.10)
+</span></span></span><span class="line"><span class="cl"><span class="c">--&gt;</span>
+</span></span><span class="line"><span class="cl"><span class="nt">&lt;ss:Workbook</span> <span class="na">xmlns:ss=</span><span class="s">&#34;urn:schemas-microsoft-com:office:spreadsheet&#34;</span><span class="nt">&gt;</span>
+</span></span><span class="line"><span class="cl">    <span class="c">&lt;!-- 样式表 --&gt;</span>
+</span></span><span class="line"><span class="cl">    <span class="nt">&lt;ss:Styles&gt;</span>
+</span></span><span class="line"><span class="cl">        <span class="nt">&lt;ss:Style</span> <span class="na">ss:ID=</span><span class="s">&#34;NormalHeader&#34;</span><span class="nt">&gt;</span>
+</span></span><span class="line"><span class="cl">            <span class="nt">&lt;ss:Font</span> <span class="na">ss:Bold=</span><span class="s">&#34;1&#34;</span> <span class="na">ss:Size=</span><span class="s">&#34;13&#34;</span> <span class="nt">/&gt;</span>
+</span></span><span class="line"><span class="cl">        <span class="nt">&lt;/ss:Style&gt;</span>
+</span></span><span class="line"><span class="cl">        <span class="nt">&lt;ss:Style</span> <span class="na">ss:ID=</span><span class="s">&#34;CategoryCluster1stLine&#34;</span><span class="nt">&gt;</span>
+</span></span><span class="line"><span class="cl">            <span class="nt">&lt;ss:Font</span> <span class="na">ss:Bold=</span><span class="s">&#34;1&#34;</span> <span class="na">ss:Size=</span><span class="s">&#34;13&#34;</span> <span class="nt">/&gt;</span>
+</span></span><span class="line"><span class="cl">            <span class="nt">&lt;ss:Interior</span> <span class="na">ss:Color=</span><span class="s">&#34;lightgray&#34;</span> <span class="na">ss:Pattern=</span><span class="s">&#34;Solid&#34;</span> <span class="nt">/&gt;</span>
+</span></span><span class="line"><span class="cl">        <span class="nt">&lt;/ss:Style&gt;</span>
+</span></span><span class="line"><span class="cl">        <span class="nt">&lt;ss:Style</span> <span class="na">ss:ID=</span><span class="s">&#34;InventoryHealthLevel1Title&#34;</span><span class="nt">&gt;</span>
+</span></span><span class="line"><span class="cl">            <span class="nt">&lt;ss:Font</span> <span class="na">ss:Bold=</span><span class="s">&#34;1&#34;</span> <span class="na">ss:Size=</span><span class="s">&#34;13&#34;</span> <span class="na">ss:Color=</span><span class="s">&#34;white&#34;</span> <span class="nt">/&gt;</span>
+</span></span><span class="line"><span class="cl">            <span class="nt">&lt;ss:Interior</span> <span class="na">ss:Color=</span><span class="s">&#34;green&#34;</span> <span class="na">ss:Pattern=</span><span class="s">&#34;Solid&#34;</span> <span class="nt">/&gt;</span>
+</span></span><span class="line"><span class="cl">        <span class="nt">&lt;/ss:Style&gt;</span>
+</span></span><span class="line"><span class="cl">    <span class="nt">&lt;/ss:Styles&gt;</span>
+</span></span><span class="line"><span class="cl">    <span class="nt">&lt;ss:Worksheet</span> <span class="na">ss:Name=</span><span class="s">&#34;Inventory Health Dashboard&#34;</span><span class="nt">&gt;</span>
+</span></span><span class="line"><span class="cl">        <span class="nt">&lt;ss:Table</span> <span class="na">ss:DefaultColumnWidth=</span><span class="s">&#34;200&#34;</span><span class="nt">&gt;</span>
+</span></span><span class="line"><span class="cl">            <span class="c">&lt;!-- 第一行标题 --&gt;</span>
+</span></span><span class="line"><span class="cl">            <span class="nt">&lt;ss:Row&gt;</span>
+</span></span><span class="line"><span class="cl">                <span class="nt">&lt;ss:Cell</span> <span class="na">ss:StyleID=</span><span class="s">&#34;NormalHeader&#34;</span><span class="nt">&gt;</span>
+</span></span><span class="line"><span class="cl">                    <span class="nt">&lt;ss:Data</span> <span class="na">ss:Type=</span><span class="s">&#34;String&#34;</span><span class="nt">&gt;</span>Category Cluster<span class="nt">&lt;/ss:Data&gt;</span>
+</span></span><span class="line"><span class="cl">                <span class="nt">&lt;/ss:Cell&gt;</span>
+</span></span><span class="line"><span class="cl">                <span class="nt">&lt;ss:Cell</span> <span class="na">ss:StyleID=</span><span class="s">&#34;NormalHeader&#34;</span><span class="nt">&gt;</span>
+</span></span><span class="line"><span class="cl">                    <span class="nt">&lt;ss:Data</span> <span class="na">ss:Type=</span><span class="s">&#34;String&#34;</span><span class="nt">&gt;</span>Total<span class="nt">&lt;/ss:Data&gt;</span>
+</span></span><span class="line"><span class="cl">                <span class="nt">&lt;/ss:Cell&gt;</span>
+</span></span><span class="line"><span class="cl">                <span class="nt">&lt;ss:Cell</span> <span class="na">ss:StyleID=</span><span class="s">&#34;InventoryHealthLevel1Title&#34;</span><span class="nt">&gt;</span>
+</span></span><span class="line"><span class="cl">                    <span class="nt">&lt;ss:Data</span> <span class="na">ss:Type=</span><span class="s">&#34;String&#34;</span><span class="nt">&gt;</span>Healthy stock level<span class="nt">&lt;/ss:Data&gt;</span>
+</span></span><span class="line"><span class="cl">                <span class="nt">&lt;/ss:Cell&gt;</span>
+</span></span><span class="line"><span class="cl">                {% if export_options.render_unknown %}
+</span></span><span class="line"><span class="cl">                    <span class="nt">&lt;ss:Cell</span> <span class="na">ss:StyleID=</span><span class="s">&#34;InventoryHealthLevelUnknownTitle&#34;</span><span class="nt">&gt;</span>
+</span></span><span class="line"><span class="cl">                        <span class="nt">&lt;ss:Data</span> <span class="na">ss:Type=</span><span class="s">&#34;String&#34;</span><span class="nt">&gt;</span>Unknown<span class="nt">&lt;/ss:Data&gt;</span>
+</span></span><span class="line"><span class="cl">                    <span class="nt">&lt;/ss:Cell&gt;</span>
+</span></span><span class="line"><span class="cl">                {% endif %}
+</span></span><span class="line"><span class="cl">            <span class="nt">&lt;/ss:Row&gt;</span>
+</span></span><span class="line"><span class="cl">            {% for cluster in export_options.export_clusters %}
+</span></span><span class="line"><span class="cl">                <span class="nt">&lt;ss:Row</span> <span class="na">ss:StyleID=</span><span class="s">&#34;CategoryCluster1stLine&#34;</span><span class="nt">&gt;</span>
+</span></span><span class="line"><span class="cl">                    <span class="nt">&lt;ss:Cell&gt;</span>
+</span></span><span class="line"><span class="cl">                        <span class="nt">&lt;ss:Data</span> <span class="na">ss:Type=</span><span class="s">&#34;String&#34;</span><span class="nt">&gt;</span>{{cluster}}({{export_options.currency}})<span class="nt">&lt;/ss:Data&gt;</span>
+</span></span><span class="line"><span class="cl">                    <span class="nt">&lt;/ss:Cell&gt;</span>
+</span></span><span class="line"><span class="cl">                    {% extract_single_stats category_clusters_report base_date var:cluster %}
+</span></span><span class="line"><span class="cl">                    {% for level in export_options.export_health_levels %}
+</span></span><span class="line"><span class="cl">                        {% extract_single_stats category_clusters_report base_date var:cluster var:level %}
+</span></span><span class="line"><span class="cl">                    {% endfor %}
+</span></span><span class="line"><span class="cl">                <span class="nt">&lt;/ss:Row&gt;</span>
+</span></span><span class="line"><span class="cl">                {% for black_cluster, supplier_id_names in export_options.top_suppliers_rank.items %}
+</span></span><span class="line"><span class="cl">                    {% if black_cluster == cluster %}
+</span></span><span class="line"><span class="cl">                        {% for supplier_id_name in supplier_id_names %}
+</span></span><span class="line"><span class="cl">                            <span class="nt">&lt;ss:Row&gt;</span>
+</span></span><span class="line"><span class="cl">                                <span class="nt">&lt;ss:Cell&gt;</span>
+</span></span><span class="line"><span class="cl">                                    <span class="nt">&lt;ss:Data</span> <span class="na">ss:Type=</span><span class="s">&#34;String&#34;</span><span class="nt">&gt;</span>{{supplier_id_name}}<span class="nt">&lt;/ss:Data&gt;</span>
+</span></span><span class="line"><span class="cl">                                <span class="nt">&lt;/ss:Cell&gt;</span>
+</span></span><span class="line"><span class="cl">                                {% extract_single_stats top_black_suppliers_report base_date var:cluster var:supplier_id_name %}
+</span></span><span class="line"><span class="cl">                                {% for level in export_options.export_health_levels %}
+</span></span><span class="line"><span class="cl">                                    {% extract_single_stats top_black_suppliers_report base_date var:cluster var:supplier_id_name var:level %}
+</span></span><span class="line"><span class="cl">                                {% endfor %}
+</span></span><span class="line"><span class="cl">                            <span class="nt">&lt;/ss:Row&gt;</span>
+</span></span><span class="line"><span class="cl">                        {% endfor %}
+</span></span><span class="line"><span class="cl">                    {% endif %}
+</span></span><span class="line"><span class="cl">                {% endfor %}
+</span></span><span class="line"><span class="cl">            {% endfor %}
+</span></span><span class="line"><span class="cl">        <span class="nt">&lt;/ss:Table&gt;</span>
+</span></span><span class="line"><span class="cl">    <span class="nt">&lt;/ss:Worksheet&gt;</span>
+</span></span><span class="line"><span class="cl"><span class="nt">&lt;/ss:Workbook&gt;</span>
+</span></span></code></pre></td></tr></table>
+</div>
+</div><h4 id="2代码demo">2、代码demo</h4>
+<p>在根据样式定义好模版文件，定义好xml后，通过django的template渲染输入数据，生成excel数据流。代码demo如下面所示：</p>
+<div class="highlight"><div class="chroma">
+<table class="lntable"><tr><td class="lntd">
+<pre tabindex="0" class="chroma"><code><span class="lnt"> 1
+</span><span class="lnt"> 2
+</span><span class="lnt"> 3
+</span><span class="lnt"> 4
+</span><span class="lnt"> 5
+</span><span class="lnt"> 6
+</span><span class="lnt"> 7
+</span><span class="lnt"> 8
+</span><span class="lnt"> 9
+</span><span class="lnt">10
+</span><span class="lnt">11
+</span><span class="lnt">12
+</span><span class="lnt">13
+</span><span class="lnt">14
+</span><span class="lnt">15
+</span><span class="lnt">16
+</span><span class="lnt">17
+</span><span class="lnt">18
+</span><span class="lnt">19
+</span></code></pre></td>
+<td class="lntd">
+<pre tabindex="0" class="chroma"><code class="language-python" data-lang="python"><span class="line"><span class="cl"><span class="kn">from</span> <span class="nn">django</span> <span class="kn">import</span> <span class="n">template</span>
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl"><span class="n">register</span> <span class="o">=</span> <span class="n">template</span><span class="o">.</span><span class="n">Library</span><span class="p">()</span>
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl"><span class="nd">@register.tag</span><span class="p">(</span><span class="n">name</span><span class="o">=</span><span class="s2">&#34;extract_single_stats&#34;</span><span class="p">)</span>
+</span></span><span class="line"><span class="cl"><span class="k">def</span> <span class="nf">extract_single_stats</span><span class="p">(</span><span class="n">parser</span><span class="p">,</span> <span class="n">token</span><span class="p">):</span>
+</span></span><span class="line"><span class="cl">    <span class="s2">&#34;&#34;&#34;
+</span></span></span><span class="line"><span class="cl"><span class="s2">    用于在模板上从指定的统计树中获取指定节点的单天的数值
+</span></span></span><span class="line"><span class="cl"><span class="s2">    https://docs.djangoproject.com/en/1.7/howto/custom-template-tags/#writing-the-compilation-function
+</span></span></span><span class="line"><span class="cl"><span class="s2">
+</span></span></span><span class="line"><span class="cl"><span class="s2">    模板中使用语法 {</span><span class="si">% e</span><span class="s2">xtract_single_stats category_clusters base_date [path_node1 [path_node2]] %}
+</span></span></span><span class="line"><span class="cl"><span class="s2">    其中 path_node 支持加载变量，通过 var: 前缀声明
+</span></span></span><span class="line"><span class="cl"><span class="s2">        {</span><span class="si">% e</span><span class="s2">xtract_single_stats category_clusters base_date var:cluster %}
+</span></span></span><span class="line"><span class="cl"><span class="s2">    如果 path_node 需要 hard code，直接写明值，不需要 var: 前缀：
+</span></span></span><span class="line"><span class="cl"><span class="s2">        {</span><span class="si">% e</span><span class="s2">xtract_single_stats category_clusters base_date cluster %}
+</span></span></span><span class="line"><span class="cl"><span class="s2">    &#34;&#34;&#34;</span>
+</span></span><span class="line"><span class="cl">    <span class="n">tag_name</span><span class="p">,</span> <span class="n">context_key</span><span class="p">,</span> <span class="n">base_date</span> <span class="o">=</span> <span class="n">token</span><span class="o">.</span><span class="n">split_contents</span><span class="p">()[</span><span class="mi">0</span><span class="p">:</span><span class="mi">3</span><span class="p">]</span>
+</span></span><span class="line"><span class="cl">    <span class="n">path_nodes</span> <span class="o">=</span> <span class="n">token</span><span class="o">.</span><span class="n">split_contents</span><span class="p">()[</span><span class="mi">3</span><span class="p">:]</span>
+</span></span><span class="line"><span class="cl">    <span class="k">return</span> <span class="n">StatsExtractionNode</span><span class="p">(</span><span class="n">context_key</span><span class="p">,</span> <span class="n">base_date</span><span class="p">,</span> <span class="kc">None</span><span class="p">,</span> <span class="n">path_nodes</span><span class="p">)</span>
+</span></span></code></pre></td></tr></table>
+</div>
+</div><h4 id="3导出效果">3、导出效果</h4>
+<p>
+经过渲染之后，最终生成复杂样式的excel表格。</p>
+<p>python用xml模版生成excel表格的方法虽然支持各种丰富的格式，兼容性高，但是这种方法有一定的学习成本，需要了解excel的xml定义，同时也依赖django的实现。那有没有更简单、更通用的方法来生成样式多变的excel呢？</p>
+<p>答案是：有的。<strong>采用go语言的方法可以更简单、更通用的来生成excel</strong>。</p>
+<h3 id="go实现方法">go实现方法</h3>
+<p>在 Excel 文档中设置标记语法，可视化编辑，通过代码逻辑实现模板转换、生成和替换，完成内容渲染和导出。一切都交给代码。整体如下面图右所示：</p>
+<p></p>
+<p>用户只需创建一个excel表格，根据简单的语法编辑，然后经过程序处理，就能完成内容渲染和导出。模版语法类似于freemarker语法，简单明了。</p>
+<h4 id="1模版demo">1、模版demo</h4>
+<p>
+如图所示，{{}}作为语法标识，可以在模版中任意地方出现。模版语法类似于freemarker语法</p>
+<table>
+<thead>
+<tr>
+<th>语法</th>
+<th>实例</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>{ {xxx} }</td>
+<td>{ {baseDate} }</td>
+<td>字符串、数值等</td>
+</tr>
+<tr>
+<td>{ {xxx.xxx} }</td>
+<td>{ {cluster.name} }</td>
+<td>对象属性值</td>
+</tr>
+<tr>
+<td>{ {range.group} } { {end} }</td>
+<td>{ {range.group} } { {end} }</td>
+<td>循环取值<br />1 、{ {range.group} }循环开始  <br />2、{ {end} } 循环结束</td>
+</tr>
+</tbody>
+</table>
+<h4 id="2代码demo-1">2、代码demo</h4>
+<p>先准备待渲染的数据，然后读模版、渲染数据，导出即可。只需简单几行代码就搞定。</p>
+<div class="highlight"><div class="chroma">
+<table class="lntable"><tr><td class="lntd">
+<pre tabindex="0" class="chroma"><code><span class="lnt"> 1
+</span><span class="lnt"> 2
+</span><span class="lnt"> 3
+</span><span class="lnt"> 4
+</span><span class="lnt"> 5
+</span><span class="lnt"> 6
+</span><span class="lnt"> 7
+</span><span class="lnt"> 8
+</span><span class="lnt"> 9
+</span><span class="lnt">10
+</span><span class="lnt">11
+</span><span class="lnt">12
+</span><span class="lnt">13
+</span><span class="lnt">14
+</span><span class="lnt">15
+</span><span class="lnt">16
+</span><span class="lnt">17
+</span><span class="lnt">18
+</span><span class="lnt">19
+</span><span class="lnt">20
+</span><span class="lnt">21
+</span><span class="lnt">22
+</span><span class="lnt">23
+</span><span class="lnt">24
+</span><span class="lnt">25
+</span><span class="lnt">26
+</span><span class="lnt">27
+</span><span class="lnt">28
+</span><span class="lnt">29
+</span></code></pre></td>
+<td class="lntd">
+<pre tabindex="0" class="chroma"><code class="language-go" data-lang="go"><span class="line"><span class="cl"><span class="kn">import</span> <span class="s">&#34;github.com/ivahaev/go-xlsx-templater&#34;</span>
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl"><span class="c1">// 1、Prepare context data
+</span></span></span><span class="line"><span class="cl"><span class="c1"></span>	<span class="nx">groups</span> <span class="o">:=</span> <span class="nb">make</span><span class="p">([]</span><span class="kd">map</span><span class="p">[</span><span class="kt">string</span><span class="p">]</span><span class="kd">interface</span><span class="p">{},</span> <span class="mi">0</span><span class="p">)</span>
+</span></span><span class="line"><span class="cl">	<span class="k">for</span> <span class="nx">_</span><span class="p">,</span> <span class="nx">key</span> <span class="o">:=</span> <span class="k">range</span> <span class="nx">keys</span> <span class="p">{</span>
+</span></span><span class="line"><span class="cl">		<span class="nx">item</span> <span class="o">:=</span> <span class="nb">make</span><span class="p">(</span><span class="kd">map</span><span class="p">[</span><span class="kt">string</span><span class="p">]</span><span class="kd">interface</span><span class="p">{},</span> <span class="mi">0</span><span class="p">)</span>
+</span></span><span class="line"><span class="cl">		<span class="nx">item</span><span class="p">[</span><span class="s">&#34;cluster&#34;</span><span class="p">]</span> <span class="p">=</span> <span class="nx">clusters</span><span class="p">[</span><span class="nx">key</span><span class="p">]</span>
+</span></span><span class="line"><span class="cl">		<span class="k">for</span> <span class="nx">k</span><span class="p">,</span> <span class="nx">v</span> <span class="o">:=</span> <span class="k">range</span> <span class="nx">topSuppliers</span> <span class="p">{</span>
+</span></span><span class="line"><span class="cl">			<span class="k">if</span> <span class="nx">k</span> <span class="o">==</span> <span class="nx">key</span> <span class="p">{</span>
+</span></span><span class="line"><span class="cl">				<span class="nx">item</span><span class="p">[</span><span class="s">&#34;black_cluster&#34;</span><span class="p">]</span> <span class="p">=</span> <span class="nx">v</span>
+</span></span><span class="line"><span class="cl">				<span class="k">break</span>
+</span></span><span class="line"><span class="cl">			<span class="p">}</span>
+</span></span><span class="line"><span class="cl">		<span class="p">}</span>
+</span></span><span class="line"><span class="cl">		<span class="nx">groups</span> <span class="p">=</span> <span class="nb">append</span><span class="p">(</span><span class="nx">groups</span><span class="p">,</span> <span class="nx">item</span><span class="p">)</span>
+</span></span><span class="line"><span class="cl">	<span class="p">}</span>
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl">	<span class="nx">ctx</span> <span class="o">:=</span> <span class="kd">map</span><span class="p">[</span><span class="kt">string</span><span class="p">]</span><span class="kd">interface</span><span class="p">{}{</span>
+</span></span><span class="line"><span class="cl">		<span class="s">&#34;groups&#34;</span><span class="p">:</span> <span class="nx">groups</span><span class="p">,</span>
+</span></span><span class="line"><span class="cl">	<span class="p">}</span>
+</span></span><span class="line"><span class="cl">	<span class="k">if</span> <span class="nx">CompareDate</span> <span class="o">!=</span> <span class="s">&#34;&#34;</span> <span class="p">{</span>
+</span></span><span class="line"><span class="cl">		<span class="nx">ctx</span><span class="p">[</span><span class="s">&#34;baseDate&#34;</span><span class="p">]</span> <span class="p">=</span> <span class="nx">req</span><span class="p">.</span><span class="nx">BaseDate</span>
+</span></span><span class="line"><span class="cl">		<span class="nx">ctx</span><span class="p">[</span><span class="s">&#34;compareDate&#34;</span><span class="p">]</span> <span class="p">=</span> <span class="nx">req</span><span class="p">.</span><span class="nx">CompareDate</span>
+</span></span><span class="line"><span class="cl">	<span class="p">}</span>
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl"><span class="c1">// 2、Read template, render with context and save to disk.
+</span></span></span><span class="line"><span class="cl"><span class="c1"></span><span class="nx">doc</span> <span class="o">:=</span> <span class="nx">xlst</span><span class="p">.</span><span class="nf">New</span><span class="p">()</span>
+</span></span><span class="line"><span class="cl">	<span class="nx">doc</span><span class="p">.</span><span class="nf">ReadTemplate</span><span class="p">(</span><span class="s">&#34;./template.xlsx&#34;</span><span class="p">)</span>
+</span></span><span class="line"><span class="cl">	<span class="nx">doc</span><span class="p">.</span><span class="nf">Render</span><span class="p">(</span><span class="nx">ctx</span><span class="p">)</span>
+</span></span><span class="line"><span class="cl">	<span class="nx">doc</span><span class="p">.</span><span class="nf">Save</span><span class="p">(</span><span class="s">&#34;./report.xlsx&#34;</span><span class="p">)</span>
+</span></span></code></pre></td></tr></table>
+</div>
+</div><h4 id="3导出效果-1">3、导出效果</h4>
+<p>导出效果和python的方法一模一样.
+</p>
+<h2 id="小结">小结</h2>
+<p>在处理简单excel，简单表头、单一样式，各个语言都有简单方便的api库供开发者使用。但是在处理复杂excel时，简单的api操作实现困难，代码冗长，并且没有一定的通用性。</p>
+<p>本文介绍了通过模版方法，定制样式复杂、通用的excel生成导出方法。go和python两种实现方式，对比之下，python稍显复杂，go通过excel模版定义样式，可视化编辑，更为简单易用。</p>
+<p>通过模版方法，从用户的角度出发，在 Excel 文档中设置标记语法，可视化编辑，通过代码逻辑实现模板转换、生成和替换，完成内容渲染和导出。一切交给程序，一切那么简单，不管产品提出多复杂的excel导出，再也不用因此加班了：）</p>
+<h2 id="进一步思考">进一步思考</h2>
+<p>考虑到大部分业务需要导出excel的需求，后续可以构建一个基于模版生成excel的服务，业务开发同学作为用户只需上传一个excel模版，然后调用excel服务就能生成excel，无需再关心excel如何生成，专注于业务开发，提升业务开发效率。</p>
+<h2 id="参考资料">参考资料</h2>
+<p><a href="https://github.com/tealeg/xlsx" target="_blank" rel="noopener noreffer ">https://github.com/tealeg/xlsx</a></p>
+<p><a href="https://github.com/ivahaev/go-xlsx-templater" target="_blank" rel="noopener noreffer ">https://github.com/ivahaev/go-xlsx-templater</a></p>
+<p><a href="https://docs.djangoproject.com/en/3.0/topics/templates/" target="_blank" rel="noopener noreffer ">https://docs.djangoproject.com/en/3.0/topics/templates/</a></p>
+<p><a href="https://docs.microsoft.com/en-us/archive/blogs/brian_jones/introduction-to-excel-xml-part-1-creating-a-simple-table" target="_blank" rel="noopener noreffer ">generate_excel_xml</a></p>]]></description>
+</item>
+<item>
     <title>mysql千万级数据分表迁移方案</title>
     <link>https://jordanzheng.github.io/mysql-sharding/</link>
     <pubDate>Sat, 14 Sep 2019 21:49:00 &#43;0000</pubDate>
@@ -1455,74 +1863,6 @@ who has 192.168.9.120的arp request，tell 192.168.9.120 your mac address，</p>
 </ol>
 <h3 id="问题引申">问题引申：</h3>
 <p>IP冲突除了出现上述能ping通但是ssh登陆不了的现象之外，还有可能出现一会儿能登陆、一会儿登陆不了，或者登陆的主机名偶尔会变。其原因可能是 <strong>IP地址冲突后，ssh 登录的设备并不是同一个设备，或者意外的不是你想要登录的设备，因此ssh登录时提示用户验证，但提示信息可能不一样（因为设备不一样了）。</strong></p>
-]]></description>
-</item>
-<item>
-    <title>批量导出CSDN博客至hexo的解决办法</title>
-    <link>https://jordanzheng.github.io/how-to-export-your-csdn-blog/</link>
-    <pubDate>Sat, 31 Mar 2018 23:34:06 &#43;0000</pubDate>
-    <author>saul</author>
-    <guid>https://jordanzheng.github.io/how-to-export-your-csdn-blog/</guid>
-    <description><![CDATA[<p>最近利用gitpage+hexo搭建好自己的博客后，想将自己的之前的csdn博客批量迁移到自己新的hexo博客上，网上搜索了一下， 发现有人已经用python写了个工具，可以将博客导出为Markdown和HTML格式：<a href="https://github.com/gaocegege/csdn-blog-export" target="_blank" rel="noopener noreffer ">csdn-blog-export</a>  。</p>
-<p>用法也很简单：<code>./main.py -u 你的CSDN用户名 -f markdown</code> 或者 <code>./main.py -u cecesjtu -f html</code></p>
-<p>然而脚本直接download下来发现不行，打开源码debug一下。将自己的**（博客主题需切回旧的主题“编程工作室”，我的“大白”主题失效）**  ，修改部分源码：修复获取博客页数的bug、去除正文中博文标题。</p>
-<p>终于拿到自己在csdn上的博客。但是此时导出的博文还不满足hexo博客的格式，于是用python写了个工具转换成满足hexo格式的.md文件。</p>
-<div class="highlight"><div class="chroma">
-<table class="lntable"><tr><td class="lntd">
-<pre tabindex="0" class="chroma"><code><span class="lnt">1
-</span><span class="lnt">2
-</span><span class="lnt">3
-</span><span class="lnt">4
-</span><span class="lnt">5
-</span><span class="lnt">6
-</span><span class="lnt">7
-</span></code></pre></td>
-<td class="lntd">
-<pre tabindex="0" class="chroma"><code class="language-markdown" data-lang="markdown"><span class="line"><span class="cl"> title: 批量导出CSDN博客至hexo的解决办法 
-</span></span><span class="line"><span class="cl">
-</span></span><span class="line"><span class="cl">	date: 2018-03-31 23:34:06 
-</span></span><span class="line"><span class="cl">
-</span></span><span class="line"><span class="cl">	tags: [hexo,csdn博客,博客迁移] 
-</span></span><span class="line"><span class="cl">
-</span></span><span class="line"><span class="cl">	categories: [&#34;经验总结&#34;]
-</span></span></code></pre></td></tr></table>
-</div>
-</div><p>用法：</p>
-<ol>
-<li>利用<a href="https://github.com/Jordanzheng/csdn-blog-export/blob/master/main.py" target="_blank" rel="noopener noreffer ">导出脚本</a>同时导出<code>.md</code>格式和<code>.html</code>格式</li>
-<li>利用<a href="https://github.com/Jordanzheng/csdn-blog-export/blob/master/md2hexo.py" target="_blank" rel="noopener noreffer ">转换脚本</a> 转换导出的csdn博客为hexo格式的博客</li>
-</ol>
-<p>特性：<code>Python</code>脚本从<code>.html</code>文件中提取出博文标题、博文创建时间、标签、分类，将它们插入对应的<code>.md</code>文件</p>
-<p>转换后最终结果：</p>
-<div class="highlight"><div class="chroma">
-<table class="lntable"><tr><td class="lntd">
-<pre tabindex="0" class="chroma"><code><span class="lnt"> 1
-</span><span class="lnt"> 2
-</span><span class="lnt"> 3
-</span><span class="lnt"> 4
-</span><span class="lnt"> 5
-</span><span class="lnt"> 6
-</span><span class="lnt"> 7
-</span><span class="lnt"> 8
-</span><span class="lnt"> 9
-</span><span class="lnt">10
-</span><span class="lnt">11
-</span></code></pre></td>
-<td class="lntd">
-<pre tabindex="0" class="chroma"><code class="language-markdown" data-lang="markdown"><span class="line"><span class="cl">title: 读《王二的经济学故事》
-</span></span><span class="line"><span class="cl">
-</span></span><span class="line"><span class="cl">date: 2018-01-18  23:25:44
-</span></span><span class="line"><span class="cl">
-</span></span><span class="line"><span class="cl">tags: [经济学, 理财]
-</span></span><span class="line"><span class="cl">
-</span></span><span class="line"><span class="cl">category:      读书札记
-</span></span><span class="line"><span class="cl">
-</span></span><span class="line"><span class="cl">前段时间看到一个微信公众号推荐一本通俗的经济读物《王二的经济学故事》，在亚马逊试读来一下，觉得很有趣，便从亚马逊下单买了kindle电子版。  
-</span></span><span class="line"><span class="cl">
-</span></span><span class="line"><span class="cl">作者用生活中通俗易懂的故事来解释经济学，主要通过主人公王二来阐述解释中国主要的经济政策和经济活动。该书读起来一点也不晦涩难懂，十分有趣，读完后对中国一些常见的经济现象有一定的思考启发。
-</span></span></code></pre></td></tr></table>
-</div>
-</div><p>搞定：）代码已上传到github上，入口：<a href="https://github.com/Jordanzheng/csdn-blog-export" target="_blank" rel="noopener noreffer ">https://github.com/Jordanzheng/csdn-blog-export</a></p>
 ]]></description>
 </item>
 </channel>
